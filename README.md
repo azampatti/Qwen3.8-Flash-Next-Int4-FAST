@@ -71,9 +71,7 @@ trimmed average over 6 runs; tool use is 3 trials.
 
 | | This model (5 experts) | Original (10 experts) |
 |---|---|---|
-| Capability | 47.6 | 51.8 |
-| Tool use | 85 | 86 |
-| Speed | ~64-70 tok/s | ~57 tok/s |
+| Speed | ~64-70 tok/s | ~47 tok/s |
 | Active parameters | 4.8B | 6.0B |
 
 You give up about four points of general capability and keep tool use intact, in exchange for a fifth
