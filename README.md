@@ -12,12 +12,18 @@ around 64-70 tokens/s.
 
 - A DGX Spark or another GB10 box, 128 GB unified memory
 - Docker with the NVIDIA container toolkit
-- About 130 GB of free disk (the model repository is ~120 GB: 72 GB of weights plus a 49 GB n-gram table).
+- **About 130 GB of free disk** (the model repository is ~120 GB: 72 GB of weights plus a 49 GB n-gram table).
   It goes into the standard Hugging Face cache, so it is shared with every other tool on your machine
 - Roughly an hour for the first setup, most of it downloading
 
-## Get it running
 
+
+## Get it running
+- One-line command - **WILL DOWNLOAD** the full container and model if its not on disk already!!!
+```bash
+git clone https://github.com/azampatti/Qwen3.8-Flash-Next-Int4-FAST.git && cd Qwen3.8-Flash-Next-Int4-FAST && bash setup.sh
+```
+  
 ```bash
 git clone https://github.com/azampatti/Qwen3.8-Flash-Next-Int4-FAST.git
 cd Qwen3.8-Flash-Next-Int4-FAST
