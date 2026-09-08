@@ -5,7 +5,7 @@ so it behaves as close to the original as we could get. It runs on **one DGX Spa
 around 64-70 tokens/s.
 
 125B parameters in total, **4.8B active per token**. The original activates 6B.
-
+https://huggingface.co/azampatti/Qwen3.8-Flash-Next-125B-A5B-INT4-AutoRound
 ---
 
 ## What you need
