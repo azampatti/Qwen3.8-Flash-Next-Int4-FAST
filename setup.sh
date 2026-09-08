@@ -36,23 +36,46 @@ else
   docker build --build-arg BASE="$UPSTREAM_IMAGE" -t "$IMAGE" .
 fi
 
-dl(){   # dl <hf repo> <target dir>
-  if [ -f "$2/.download-complete" ]; then echo "  already downloaded: $2"; return 0; fi
-  echo "  downloading $1 -> $2"
-  docker run --rm -v "$MODELS_DIR":/models ${HF_TOKEN:+-e HF_TOKEN} --entrypoint hf "$IMAGE" \
-    download "$1" --local-dir "/models/$(basename "$2")"
-  docker run --rm -v "$MODELS_DIR":/models --entrypoint sh "$IMAGE" \
-    -c "chown -R $(id -u):$(id -g) /models/$(basename "$2") && touch /models/$(basename "$2")/.download-complete"
+dl(){   # dl <hf repo> : download with the official Hugging Face tool, into the standard cache unless DOWNLOAD_MODE=local
+  local repo="$1"
+  if [ "$DOWNLOAD_MODE" = cache ]; then
+    if [ -n "$(hf_snapshot_dir "$repo" 2>/dev/null || true)" ]; then
+      echo "  already in the Hugging Face cache: $(hf_snapshot_dir "$repo")"; return 0
+    fi
+    mkdir -p "$HF_HOME"
+    if command -v hf >/dev/null 2>&1; then          # host tool: files stay owned by you
+      echo "  downloading $repo into $HF_HOME (host 'hf')"
+      HF_HOME="$HF_HOME" hf download "$repo"
+    else                                            # no host tool: use the image, then hand the files back
+      echo "  downloading $repo into $HF_HOME (via the container; no 'hf' on this host)"
+      docker run --rm -v "$HF_HOME":"$HF_HOME" -e HF_HOME="$HF_HOME" ${HF_TOKEN:+-e HF_TOKEN} \
+        --entrypoint hf "$IMAGE" download "$repo"
+      docker run --rm -v "$HF_HOME":"$HF_HOME" --entrypoint sh "$IMAGE" \
+        -c "chown -R $(id -u):$(id -g) '$(hf_repo_root "$repo")'"
+    fi
+    [ -n "$(hf_snapshot_dir "$repo" 2>/dev/null || true)" ] || { echo "ERROR: $repo did not land in the cache" >&2; exit 1; }
+  else
+    local target="$MODELS_DIR/$(basename "$repo")"
+    if [ -f "$target/.download-complete" ]; then echo "  already downloaded: $target"; return 0; fi
+    echo "  downloading $repo -> $target"
+    mkdir -p "$MODELS_DIR"
+    docker run --rm -v "$MODELS_DIR":/models ${HF_TOKEN:+-e HF_TOKEN} --entrypoint hf "$IMAGE" \
+      download "$repo" --local-dir "/models/$(basename "$repo")"
+    docker run --rm -v "$MODELS_DIR":/models --entrypoint sh "$IMAGE" \
+      -c "chown -R $(id -u):$(id -g) /models/$(basename "$repo") && touch /models/$(basename "$repo")/.download-complete"
+  fi
 }
-step "Downloading the model (~120 GB, the n-gram table is inside it)"; dl "$MODEL_REPO" "$MODEL_DIR"
-source ./config.env                      # re-resolve TABLE_DIR now that the model is on disk
-if [ -n "$(ls "$TABLE_DIR" 2>/dev/null)" ]; then
-  echo "  n-gram table found: $TABLE_DIR"
+step "Downloading the model (~120 GB, the n-gram table is inside it)"
+dl "$MODEL_REPO"
+source ./config.env                      # re-resolve MODEL_DIR/TABLE_DIR now that the files exist
+echo "  model: $MODEL_DIR"
+if [ -n "$TABLE_DIR" ] && [ -n "$(ls "$TABLE_DIR" 2>/dev/null)" ]; then
+  echo "  n-gram table: $TABLE_DIR"
 else
-  step "Downloading the n-gram table separately (~49 GB)"; dl "$TABLE_REPO" "$TABLE_DIR"
+  step "Downloading the n-gram table separately (~49 GB)"; dl "$TABLE_REPO"; source ./config.env; echo "  n-gram table: $TABLE_DIR"
 fi
 
 step "Creating the speculative-decoding draft directory (symlinks, no extra disk)"
-if [ -f "$DRAFT_DIR/config.json" ]; then echo "  already there: $DRAFT_DIR"; else python3 tools/make_draft_dir.py "$MODEL_DIR" "$DRAFT_DIR"; fi
+if [ -f "$DRAFT_DIR/config.json" ] && [ -e "$DRAFT_DIR/model.safetensors.index.json" ]; then echo "  already there: $DRAFT_DIR"; else python3 tools/make_draft_dir.py "$MODEL_DIR" "$DRAFT_DIR"; fi
 
 printf '\n\033[1mSetup complete.\033[0m  Start the server with:  ./serve.sh\n\n'
