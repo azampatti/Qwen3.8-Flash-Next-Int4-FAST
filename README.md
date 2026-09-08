@@ -12,7 +12,8 @@ around 64-70 tokens/s.
 
 - A DGX Spark or another GB10 box, 128 GB unified memory
 - Docker with the NVIDIA container toolkit
-- About 130 GB of free disk (the model repository is ~120 GB: 72 GB of weights plus a 49 GB n-gram table)
+- About 130 GB of free disk (the model repository is ~120 GB: 72 GB of weights plus a 49 GB n-gram table).
+  It goes into the standard Hugging Face cache, so it is shared with every other tool on your machine
 - Roughly an hour for the first setup, most of it downloading
 
 ## Get it running
@@ -20,8 +21,8 @@ around 64-70 tokens/s.
 ```bash
 git clone https://github.com/azampatti/Qwen3.8-Flash-Next-Int4-FAST.git
 cd Qwen3.8-Flash-Next-Int4-FAST
-bash ./setup.sh        # builds the image, downloads the weights. Once.
-bash ./serve.sh        # starts the server on port 8000
+./setup.sh        # builds the image, downloads the weights. Once.
+./serve.sh        # starts the server on port 8000
 ```
 
 In another terminal:
@@ -31,6 +32,10 @@ In another terminal:
 ```
 
 That is the whole thing. `setup.sh` is safe to re-run; it skips anything already done.
+
+The model goes into the **standard Hugging Face cache**, so if you already pulled it with `hf download` or your own
+script, setup finds it and downloads nothing. Other tools on the machine share the same copy. If you would rather have
+a plain folder of real files, run `DOWNLOAD_MODE=local ./setup.sh` instead.
 
 ## Using it
 
@@ -61,6 +66,8 @@ Edit `config.env`, or put any of these in front of the command:
 | `DET_TOPK` | 0 | `1` makes greedy output identical run to run |
 | `KV_DTYPE` | `auto` | `fp8_e4m3` fits ~1.9x more context per GB, but is slower and slightly worse |
 | `CHAT_TEMPLATE` | — | Path to one of the alternative templates shipped with the model |
+| `DOWNLOAD_MODE` | `cache` | `cache` uses `~/.cache/huggingface` like every other Hugging Face tool. `local` puts a plain folder of real files under `MODELS_DIR` instead |
+| `HF_HOME` | `~/.cache/huggingface` | Where the cache lives |
 
 Example: `KV_BYTES=30g DET_TOPK=1 ./serve.sh`
 
@@ -71,7 +78,9 @@ trimmed average over 6 runs; tool use is 3 trials.
 
 | | This model (5 experts) | Original (10 experts) |
 |---|---|---|
-| Speed | ~64-70 tok/s | ~47 tok/s |
+| Capability | 47.6 | 51.8 |
+| Tool use | 85 | 86 |
+| Speed | ~64-70 tok/s | ~57 tok/s |
 | Active parameters | 4.8B | 6.0B |
 
 You give up about four points of general capability and keep tool use intact, in exchange for a fifth
