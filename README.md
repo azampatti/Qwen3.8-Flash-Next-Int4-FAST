@@ -20,8 +20,8 @@ around 64-70 tokens/s.
 ```bash
 git clone https://github.com/azampatti/Qwen3.8-Flash-Next-Int4-FAST.git
 cd Qwen3.8-Flash-Next-Int4-FAST
-./setup.sh        # builds the image, downloads the weights. Once.
-./serve.sh        # starts the server on port 8000
+bash ./setup.sh        # builds the image, downloads the weights. Once.
+bash ./serve.sh        # starts the server on port 8000
 ```
 
 In another terminal:
