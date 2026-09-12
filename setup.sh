@@ -87,14 +87,18 @@ else
 fi
 
 step "Creating the speculative-decoding draft directory (symlinks, no extra disk)"
-# Rebuilt whenever the model folder is newer than the draft folder, so an updated download is picked up.
-if [ -f "$DRAFT_DIR/config.json" ] && [ -e "$DRAFT_DIR/model.safetensors.index.json" ] \
-   && [ ! "$MODEL_DIR/model.safetensors.index.json" -nt "$DRAFT_DIR/config.json" ] \
-   && [ ! "$MODEL_DIR/config.json" -nt "$DRAFT_DIR/config.json" ]; then
-  echo "  already there: $DRAFT_DIR"
-else
-  python3 tools/make_draft_dir.py "$MODEL_DIR" "$DRAFT_DIR"
-fi
+# The draft folder is symlinks INTO the model folder, and a hub update lands in a new snapshot folder, so links
+# made against the previous one must be rebuilt. Comparing timestamps cannot see this: every file in a snapshot is
+# itself a symlink to a content-addressed blob whose timestamp is the day it was first downloaded. So compare the
+# path the links actually name against the model folder in use.
+draft_fresh(){
+  [ -f "$DRAFT_DIR/config.json" ] && [ -e "$DRAFT_DIR/model.safetensors.index.json" ] || return 1
+  case "$(readlink "$DRAFT_DIR/model.safetensors.index.json" 2>/dev/null)" in
+    *"$(basename "$MODEL_DIR")"/*) return 0 ;;
+    *) return 1 ;;
+  esac
+}
+if draft_fresh; then echo "  already there: $DRAFT_DIR"; else python3 tools/make_draft_dir.py "$MODEL_DIR" "$DRAFT_DIR"; fi
 
 step "Preparing the draft-logit scaling module (DRAFT_SCALE in serve.sh)"
 if [ "${DRAFT_SCALE:-2}" = 1 ]; then
