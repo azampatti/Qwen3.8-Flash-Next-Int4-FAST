@@ -36,12 +36,37 @@ else
   docker build --build-arg BASE="$UPSTREAM_IMAGE" -t "$IMAGE" .
 fi
 
-step "Checking the image supports the default speculative settings (block verification, probabilistic drafting)"
-if docker run --rm --entrypoint sh "$IMAGE" -c 'f=$(find /usr/local/lib -path "*vllm/config/speculative.py" 2>/dev/null | head -1); [ -n "$f" ] && grep -q "\"block\"" "$f" && grep -q "\"probabilistic\"" "$f"'; then
-  echo "  ok: both supported"
-else
-  echo "  WARNING: this image lacks them. Set REJECTION_SAMPLE=standard and DRAFT_SAMPLE=greedy in serve.sh or the server will not start."
-fi
+# Everything serve.sh relies on, checked against the image that is actually going to run -- an image that was built
+# earlier is not evidence that it still carries the pieces this model needs. Hard failures stop setup; the draft-logit
+# patch only warns, because serve.sh falls back to unscaled drafting.
+step "Checking the image has what this model needs"
+docker run --rm --entrypoint sh "$IMAGE" -c '
+  fail=0
+  f=$(find /usr/local/lib -path "*vllm/config/speculative.py" 2>/dev/null | head -1)
+  if [ -n "$f" ] && grep -q "\"block\"" "$f" && grep -q "\"probabilistic\"" "$f"; then
+    echo "  ok: block verification + probabilistic drafting"
+  else
+    echo "  FAIL: no block/probabilistic speculative sampling (set REJECTION_SAMPLE=standard DRAFT_SAMPLE=greedy)"; fail=1
+  fi
+  m=$(find /usr/local/lib -path "*qwen3_8_flash_next/nvidia/mtp.py" 2>/dev/null | head -1)
+  if [ -n "$m" ]; then
+    echo "  ok: speculative-decoding head support"
+    if grep -q "LogitsProcessor(config.vocab_size)$" "$m"; then
+      echo "  ok: draft-logit scaling can be applied (DRAFT_SCALE)"
+    else
+      echo "  WARNING: this image builds the draft logits differently -- DRAFT_SCALE will be ignored"
+    fi
+  else
+    echo "  FAIL: this image cannot serve the speculative head (set MTP=0)"; fail=1
+  fi
+  grep -rqs "FP8_HYBRID" /usr/local/lib/python3.12/dist-packages/vllm/ \
+    && echo "  ok: fp8 hybrid loader (this checkpoint needs it)" \
+    || { echo "  FAIL: no fp8 hybrid loader -- this image cannot serve this checkpoint"; fail=1; }
+  grep -rqs "PLE_MMAP" /usr/local/lib/python3.12/dist-packages/vllm/ \
+    && echo "  ok: memory-mapped n-gram table" \
+    || { echo "  FAIL: no n-gram table support -- this image cannot serve this checkpoint"; fail=1; }
+  exit $fail
+' || die "the image is missing something this model needs (see above). Delete it and re-run setup to rebuild: docker rmi $IMAGE"
 
 dl(){   # dl <hf repo> : download with the official Hugging Face tool, into the standard cache unless DOWNLOAD_MODE=local
   local repo="$1"
@@ -80,6 +105,24 @@ step "Downloading the model (~120 GB, the n-gram table is inside it)"
 dl "$MODEL_REPO"
 source ./config.env                      # re-resolve MODEL_DIR/TABLE_DIR now that the files exist
 echo "  model: $MODEL_DIR"
+
+# A download reports success when the revision looks complete in ITS bookkeeping. That is not the same as the files
+# being the ones the hub serves now, so compare each large file's cached hash against the hub's before trusting it.
+verify_cache(){ docker run --rm -v "$PWD":/repo:ro -v "$HF_HOME":"$HF_HOME" -e HF_HOME="$HF_HOME" ${HF_TOKEN:+-e HF_TOKEN} \
+  --entrypoint python3 "$IMAGE" /repo/tools/verify_cache.py --repo "$MODEL_REPO" --hf-home "$HF_HOME" 2>/dev/null | grep -v "^Hint"; }
+if [ "$DOWNLOAD_MODE" = cache ] && [ "${OFFLINE:-0}" != 1 ]; then
+  step "Checking the cached files are the ones the hub has"
+  out="$(verify_cache)"; printf '%s\n' "$out" | sed 's/^/  /'
+  if printf '%s' "$out" | grep -qE '^(MISSING|STALE)'; then
+    echo "  repairing: dropping the outdated entries so they download again"
+    while read -r kind name rest; do
+      case "$kind" in MISSING|STALE) rm -f "$MODEL_DIR/$name" ;; esac
+    done <<< "$out"
+    dl "$MODEL_REPO"; source ./config.env
+    out="$(verify_cache)"; printf '%s\n' "$out" | sed 's/^/  /'
+    printf '%s' "$out" | grep -qE '^(MISSING|STALE)' && die "the cache still does not match the hub (see above)"
+  fi
+fi
 if [ -n "$TABLE_DIR" ] && [ -n "$(ls "$TABLE_DIR" 2>/dev/null)" ]; then
   echo "  n-gram table: $TABLE_DIR"
 else
@@ -92,11 +135,14 @@ step "Creating the speculative-decoding draft directory (symlinks, no extra disk
 # itself a symlink to a content-addressed blob whose timestamp is the day it was first downloaded. So compare the
 # path the links actually name against the model folder in use.
 draft_fresh(){
-  [ -f "$DRAFT_DIR/config.json" ] && [ -e "$DRAFT_DIR/model.safetensors.index.json" ] || return 1
+  [ -f "$DRAFT_DIR/config.json" ] || return 1
+  [ -e "$DRAFT_DIR/model.safetensors.index.json" ] && [ -e "$DRAFT_DIR/model_extra_tensors.safetensors" ] || return 1
   case "$(readlink "$DRAFT_DIR/model.safetensors.index.json" 2>/dev/null)" in
-    *"$(basename "$MODEL_DIR")"/*) return 0 ;;
+    *"$(basename "$MODEL_DIR")"/*) ;;
     *) return 1 ;;
   esac
+  # it exists and points at the right copy of the model; it also has to actually say 10 experts, or it does nothing
+  [ "$(python3 -c "import json;c=json.load(open('$DRAFT_DIR/config.json'));t=c.get('text_config',c);print(t['num_experts_per_tok'])" 2>/dev/null)" = 10 ]
 }
 if draft_fresh; then echo "  already there: $DRAFT_DIR"; else python3 tools/make_draft_dir.py "$MODEL_DIR" "$DRAFT_DIR"; fi
 
@@ -104,7 +150,8 @@ step "Preparing the draft-logit scaling module (DRAFT_SCALE in serve.sh)"
 if [ "${DRAFT_SCALE:-2}" = 1 ]; then
   echo "  DRAFT_SCALE=1, nothing to build"
 elif python3 tools/draft_scale.py --image "$IMAGE" --out "$MODELS_DIR/.draft-scale/mtp.py"; then
-  :
+  grep -q "VLLM_MTP_DRAFT_SCALE" "$MODELS_DIR/.draft-scale/mtp.py" \
+    || die "the draft-scale module was written without the scaling hook -- please report this"
 else
   echo "  note: this image does not match the patcher; serve.sh will draft without scaling"
 fi
