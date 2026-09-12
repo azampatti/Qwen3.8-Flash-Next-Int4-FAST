@@ -88,7 +88,7 @@ or put any of them in front of the command for a single run.
 | `SEQS` | 8 | How many requests at once |
 | `KV_BYTES` | `20g` | Size of the KV cache. 20 GB holds about 645,000 tokens |
 | `KV_DTYPE` | `auto` | `fp8_e4m3` fits ~1.9x more context per GB, but is slower and slightly worse |
-| `CHAT_TEMPLATE` | — | `medium`, `xhigh`, or a path. Bare names resolve to the templates inside the model |
+| `CHAT_TEMPLATE` | `medium` | `medium`, `xhigh`, a path, or `model` for the model's own stock template. Bare names resolve to the templates shipped inside the model. `medium` is the default because the speculative head was trained on it: the stock template (reasoning effort xhigh) measured 70% acceptance and 49.7 tok/s against 75% and 52.9 tok/s with `medium` |
 | `TOOL_PARSER` | `qwen3_coder` | How tool calls are parsed out of the reply |
 | `REASONING_PARSER` | `qwen3` | Puts the thinking block in its own `reasoning` field |
 | `MTP` | 3 | Speculative decoding depth. `0` turns it off; 3 is the measured optimum |
@@ -126,14 +126,14 @@ You give up about four points of general capability and keep tool use intact, in
 fewer active parameters and noticeably faster generation.
 
 **Speculative decoding.** The model ships with its own retrained draft head. On our 60-row probe at
-temperature 0.5, with the defaults in `serve.sh`, the share of drafted tokens the model accepts is:
+temperature 0.5, with the defaults in `serve.sh` (including the `medium` chat template), the share of drafted tokens the model accepts is:
 
 | | Accepted |
 |---|---|
-| Everything | 76% |
-| Code | 86% |
+| Everything | 75% |
+| Code | 85% |
 | Prose | 63% |
-| Long context | 87% |
+| Long context | 89% |
 
 Prose is the hard case for any draft head, which is why `DRAFT_SCALE` exists: it is the cheapest two and
 a half points of acceptance available, and it cannot change what the model says.

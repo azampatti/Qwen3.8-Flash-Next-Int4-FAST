@@ -4,7 +4,7 @@
 #
 # EVERYTHING you might want to change is in the block below: one setting per line.
 # Edit a line, save, re-run. Or override any of them for a single run without editing:
-#     CTX=32768 CHAT_TEMPLATE=medium ./serve.sh
+#     CTX=32768 CHAT_TEMPLATE=xhigh ./serve.sh
 
 # ═══════════════════════════════ SETTINGS ═══════════════════════════════
 # >>> SETTINGS >>>
@@ -17,7 +17,7 @@ SEQS="${SEQS:-8}"                                     # how many requests may ru
 KV_BYTES="${KV_BYTES:-20g}"                           # KV cache size; 20g holds ~645k tokens total
 KV_DTYPE="${KV_DTYPE:-auto}"                          # auto | fp8_e4m3  (fp8 = ~1.9x context, ~10% slower)
 
-CHAT_TEMPLATE="${CHAT_TEMPLATE:-}"                    # "" = the model's default | medium | xhigh | /path/to/file.jinja
+CHAT_TEMPLATE="${CHAT_TEMPLATE:-medium}"              # medium | xhigh | model (the model's own stock template) | /path/to/file.jinja. medium is what the speculative head was trained on: +5pp acceptance, +6% tok/s vs the stock template
 TOOL_PARSER="${TOOL_PARSER:-qwen3_coder}"             # how tool calls are parsed out of the reply
 REASONING_PARSER="${REASONING_PARSER:-qwen3}"         # puts <think> into its own "reasoning" field
 
@@ -62,6 +62,7 @@ TOPK=$(python3 -c "import json;c=json.load(open('$MODEL_DIR/config.json'));print
 
 # CHAT_TEMPLATE accepts a bare name (medium, xhigh) for a template shipped inside the model, or a full path.
 TPL=(); TPL_MOUNT=(); TPL_NOTE=""
+[ "$CHAT_TEMPLATE" = model ] && CHAT_TEMPLATE=""   # "model" = let vLLM use the template the model ships as its default
 if [ -n "$CHAT_TEMPLATE" ]; then
   TPL_FILE="$CHAT_TEMPLATE"
   if [ "${CHAT_TEMPLATE#*/}" = "$CHAT_TEMPLATE" ] && [ ! -f "$CHAT_TEMPLATE" ]; then
