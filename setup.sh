@@ -36,11 +36,21 @@ else
   docker build --build-arg BASE="$UPSTREAM_IMAGE" -t "$IMAGE" .
 fi
 
+step "Checking the image supports the default speculative settings (block verification, probabilistic drafting)"
+if docker run --rm --entrypoint sh "$IMAGE" -c 'f=$(find /usr/local/lib -path "*vllm/config/speculative.py" 2>/dev/null | head -1); [ -n "$f" ] && grep -q "\"block\"" "$f" && grep -q "\"probabilistic\"" "$f"'; then
+  echo "  ok: both supported"
+else
+  echo "  WARNING: this image lacks them. Set REJECTION_SAMPLE=standard and DRAFT_SAMPLE=greedy in serve.sh or the server will not start."
+fi
+
 dl(){   # dl <hf repo> : download with the official Hugging Face tool, into the standard cache unless DOWNLOAD_MODE=local
   local repo="$1"
   if [ "$DOWNLOAD_MODE" = cache ]; then
-    if [ -n "$(hf_snapshot_dir "$repo" 2>/dev/null || true)" ]; then
-      echo "  already in the Hugging Face cache: $(hf_snapshot_dir "$repo")"; return 0
+    local have; have="$(hf_snapshot_dir "$repo" 2>/dev/null || true)"
+    if [ -n "$have" ]; then
+      if [ "${OFFLINE:-0}" = 1 ]; then echo "  already in the cache, not contacting the hub (OFFLINE=1): $have"; return 0; fi
+      echo "  already in the cache: $have"
+      echo "  asking the hub for anything newer (unchanged files are reused, so this is usually seconds)"
     fi
     mkdir -p "$HF_HOME"
     if command -v hf >/dev/null 2>&1; then          # host tool: files stay owned by you
@@ -56,7 +66,8 @@ dl(){   # dl <hf repo> : download with the official Hugging Face tool, into the 
     [ -n "$(hf_snapshot_dir "$repo" 2>/dev/null || true)" ] || { echo "ERROR: $repo did not land in the cache" >&2; exit 1; }
   else
     local target="$MODELS_DIR/$(basename "$repo")"
-    if [ -f "$target/.download-complete" ]; then echo "  already downloaded: $target"; return 0; fi
+    if [ -f "$target/.download-complete" ] && [ "${OFFLINE:-0}" = 1 ]; then echo "  already downloaded, not contacting the hub (OFFLINE=1): $target"; return 0; fi
+    [ -f "$target/.download-complete" ] && echo "  already downloaded: $target -- asking the hub for anything newer"
     echo "  downloading $repo -> $target"
     mkdir -p "$MODELS_DIR"
     docker run --rm -v "$MODELS_DIR":/models ${HF_TOKEN:+-e HF_TOKEN} --entrypoint hf "$IMAGE" \
@@ -76,6 +87,22 @@ else
 fi
 
 step "Creating the speculative-decoding draft directory (symlinks, no extra disk)"
-if [ -f "$DRAFT_DIR/config.json" ] && [ -e "$DRAFT_DIR/model.safetensors.index.json" ]; then echo "  already there: $DRAFT_DIR"; else python3 tools/make_draft_dir.py "$MODEL_DIR" "$DRAFT_DIR"; fi
+# Rebuilt whenever the model folder is newer than the draft folder, so an updated download is picked up.
+if [ -f "$DRAFT_DIR/config.json" ] && [ -e "$DRAFT_DIR/model.safetensors.index.json" ] \
+   && [ ! "$MODEL_DIR/model.safetensors.index.json" -nt "$DRAFT_DIR/config.json" ] \
+   && [ ! "$MODEL_DIR/config.json" -nt "$DRAFT_DIR/config.json" ]; then
+  echo "  already there: $DRAFT_DIR"
+else
+  python3 tools/make_draft_dir.py "$MODEL_DIR" "$DRAFT_DIR"
+fi
+
+step "Preparing the draft-logit scaling module (DRAFT_SCALE in serve.sh)"
+if [ "${DRAFT_SCALE:-2}" = 1 ]; then
+  echo "  DRAFT_SCALE=1, nothing to build"
+elif python3 tools/draft_scale.py --image "$IMAGE" --out "$MODELS_DIR/.draft-scale/mtp.py"; then
+  :
+else
+  echo "  note: this image does not match the patcher; serve.sh will draft without scaling"
+fi
 
 printf '\n\033[1mSetup complete.\033[0m  Start the server with:  ./serve.sh\n\n'
