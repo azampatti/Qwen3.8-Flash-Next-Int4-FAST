@@ -45,6 +45,17 @@ git pull
 up-to-date machine finishes in seconds and a refreshed speculative-decoding head costs one 5 GB download
 rather than the full 120 GB. Add `OFFLINE=1` to skip the hub check entirely.
 
+Nothing is taken on trust. Every run also checks:
+
+- **the image**, against what this checkpoint needs: the fp8 hybrid loader, the memory-mapped n-gram table,
+  the speculative head, and the two sampling methods `serve.sh` defaults to. An image built weeks ago is not
+  evidence that it still has them, so this runs even when the build step says "already built".
+- **the cached weights**, against the hashes the hub reports right now. A download reports success when the
+  revision looks complete in its own bookkeeping, which is not the same as the files being current. Anything
+  outdated is dropped and fetched again, and setup stops rather than serve you a stale head.
+- **the two small things setup generates**, the draft folder and the draft-logit module: both are rebuilt when
+  they no longer match the model folder or the image in use.
+
 The model goes into the **standard Hugging Face cache**, so if you already pulled it with `hf download` or your own
 script, setup finds it and downloads nothing. Other tools on the machine share the same copy. If you would rather have
 a plain folder of real files, run `DOWNLOAD_MODE=local ./setup.sh` instead.
@@ -93,6 +104,7 @@ or put any of them in front of the command for a single run.
 | `DOWNLOAD_MODE` | `cache` | `cache` uses `~/.cache/huggingface` like every other Hugging Face tool. `local` puts a plain folder of real files under `MODELS_DIR` instead |
 | `HF_HOME` | `~/.cache/huggingface` | Where the cache lives |
 | `MODELS_DIR` | `~/models` | Plain-folder location for `local` mode, and the small draft folder |
+| `OFFLINE` | 0 | `1` skips every hub call in `setup.sh`, so nothing is checked or downloaded |
 | `EXTRA_ARGS` | — | Anything else to append to the vLLM command line |
 | `DOCKER_EXTRA_ARGS` | — | Extra flags for `docker run` itself (bind mounts, `-e` variables) |
 
