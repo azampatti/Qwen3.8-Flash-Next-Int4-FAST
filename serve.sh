@@ -79,6 +79,15 @@ SPEC=(); DRAFT_NOTE=""
 if [ "$MTP" != 0 ]; then
   DRAFT="$MODEL_DIR"; DRAFT_NOTE=" (draft: same as the model)"
   if [ "$DRAFT_K10" = 1 ]; then
+    # A hub update lands in a NEW snapshot folder, so a draft folder built against the previous one would quietly
+    # feed the OLD speculative head to the server. Rebuild it when its links no longer name the model folder in use.
+    if [ -f "$DRAFT_DIR/config.json" ]; then
+      case "$(readlink "$DRAFT_DIR/model.safetensors.index.json" 2>/dev/null)" in
+        *"$(basename "$MODEL_DIR")"/*) : ;;
+        *) echo "  the draft folder points at a different copy of the model -- rebuilding it"
+           python3 tools/make_draft_dir.py "$MODEL_DIR" "$DRAFT_DIR" >/dev/null || true ;;
+      esac
+    fi
     if [ -f "$DRAFT_DIR/config.json" ]; then DRAFT="$DRAFT_DIR"; DRAFT_NOTE=" (draft k=10)"
     else echo "  note: DRAFT_K10=1 but $DRAFT_DIR does not exist -- drafting like the model. Create it with: python3 tools/make_draft_dir.py \"$MODEL_DIR\""; fi
   fi
