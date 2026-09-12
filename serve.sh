@@ -109,6 +109,14 @@ if [ "$MTP" != 0 ] && [ "$DRAFT_SCALE" != 1 ]; then
     SCALE_NOTE=", draft x$DRAFT_SCALE"
   fi
 fi
+# In cache mode the server is handed the repo id and resolves the snapshot from the cache itself, so the model name
+# that tools read back from the server (startup banner, /v1/models "root") is the repo, not a snapshot path.
+# Offline is required, not optional: the cache is mounted read-only, and offline the hub library only follows the
+# cache's "main" pointer -- the same snapshot everything else in this script uses. A plain folder has no cache.
+MODEL_ARG="$MODEL_DIR"; HUB_ENV=()
+if [ "$DOWNLOAD_MODE" = cache ]; then
+  MODEL_ARG="$MODEL_REPO"; HUB_ENV=(-e HF_HUB_CACHE="$HF_HOME/hub" -e HF_HUB_OFFLINE=1)
+fi
 DET=(); [ "$DET_TOPK" = 1 ] && DET=(-e VLLM_QSA_DET_TOPK=1 -e VLLM_QSA_DET_LIB=/opt/llm/kernel-det/_C_det.so)
 RUN=(--rm); [ "$DETACH" = 1 ] && RUN=(-d --rm) || { [ -t 0 ] && RUN=(--rm -it); }
 
@@ -121,8 +129,8 @@ exec docker run "${RUN[@]}" --name "$CONTAINER" \
   --gpus all --ipc=host --shm-size "$SHM" -p "${PORT}:8000" \
   "${MOUNTS[@]}" "${TPL_MOUNT[@]}" "${SCALE_MOUNT[@]}" "${SCALE_ENV[@]}" $DOCKER_EXTRA_ARGS \
   -e VLLM_PLE_MMAP=1 -e VLLM_PLE_MMAP_WORKERS=32 -e VLLM_PLE_MMAP_PREWARM="$PLE_PREWARM" -e VLLM_PLE_MMAP_DIR="$TABLE_DIR" \
-  -e VLLM_MARLIN_USE_ATOMIC_ADD=1 -e VLLM_FP8_HYBRID=1 -e VLLM_USE_DEEP_GEMM=0 -e VLLM_USE_FLASHINFER_SAMPLER=1 "${DET[@]}" \
-  "$IMAGE" "$MODEL_DIR" --served-model-name "$SERVED_NAME" \
+  -e VLLM_MARLIN_USE_ATOMIC_ADD=1 -e VLLM_FP8_HYBRID=1 -e VLLM_USE_DEEP_GEMM=0 -e VLLM_USE_FLASHINFER_SAMPLER=1 "${DET[@]}" "${HUB_ENV[@]}" \
+  "$IMAGE" "$MODEL_ARG" --served-model-name "$SERVED_NAME" \
     --host 0.0.0.0 --port 8000 --load-format fastsafetensors \
     --max-model-len "$CTX" --max-num-seqs "$SEQS" --gpu-memory-utilization "$GPU_MEM_UTIL" --kv-cache-memory-bytes "$KV_BYTES" \
     --enable-prefix-caching --enable-chunked-prefill --max-num-batched-tokens "$BATCHED_TOKENS" \
