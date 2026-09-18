@@ -92,7 +92,6 @@ or put any of them in front of the command for a single run.
 | `TOOL_PARSER` | `qwen3_coder` | How tool calls are parsed out of the reply |
 | `REASONING_PARSER` | `qwen3` | Puts the thinking block in its own `reasoning` field |
 | `MTP` | 3 | Speculative decoding depth. `0` turns it off; 3 is the measured optimum |
-| `DRAFT_K10` | 1 | Let the speculator draft over 10 experts. Faster, costs nothing |
 | `DET_TOPK` | 0 | `1` makes expert selection deterministic. Slower, and not enough on its own to make greedy output bit-exact |
 | `REJECTION_SAMPLE` | `block` | How the drafted tokens are checked. `block` judges the three as a set (Sun et al.), `standard` one at a time. Both exact. Default is `block` because, with `DRAFT_SAMPLE=probabilistic`, it measured +2.4pp acceptance at T=0.5 (alone it was a tie) |
 | `DRAFT_SAMPLE` | `probabilistic` | `probabilistic` keeps the draft's full logits for the accept test; `greedy` hands over a one-hot guess. Both exact. Neither knob changes anything at temperature 0 |

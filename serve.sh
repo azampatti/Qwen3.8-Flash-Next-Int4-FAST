@@ -22,7 +22,6 @@ TOOL_PARSER="${TOOL_PARSER:-qwen3_coder}"             # how tool calls are parse
 REASONING_PARSER="${REASONING_PARSER:-qwen3}"         # puts <think> into its own "reasoning" field
 
 MTP="${MTP:-3}"                                       # speculative decoding depth; 0 = off. 3 is the measured optimum
-DRAFT_K10="${DRAFT_K10:-1}"                           # 1 = draft over 10 experts (faster); 0 = draft like the model
 DET_TOPK="${DET_TOPK:-0}"                             # 1 = deterministic expert top-k (slower, still not bit-exact)
 REJECTION_SAMPLE="${REJECTION_SAMPLE:-block}"         # block | standard. block = joint verification of the drafted tokens (exact). Default since 2026-09-08: +2.4pp acceptance with DRAFT_SAMPLE=probabilistic
 DRAFT_SAMPLE="${DRAFT_SAMPLE:-probabilistic}"         # probabilistic | greedy. probabilistic keeps the draft's full logits for the accept test (exact). Both only matter at temperature > 0
@@ -78,20 +77,19 @@ fi
 
 SPEC=(); DRAFT_NOTE=""
 if [ "$MTP" != 0 ]; then
-  DRAFT="$MODEL_DIR"; DRAFT_NOTE=" (draft: same as the model)"
-  if [ "$DRAFT_K10" = 1 ]; then
-    # A hub update lands in a NEW snapshot folder, so a draft folder built against the previous one would quietly
-    # feed the OLD speculative head to the server. Rebuild it when its links no longer name the model folder in use.
-    if [ -f "$DRAFT_DIR/config.json" ]; then
-      case "$(readlink "$DRAFT_DIR/model.safetensors.index.json" 2>/dev/null)" in
-        *"$(basename "$MODEL_DIR")"/*) : ;;
-        *) echo "  the draft folder points at a different copy of the model -- rebuilding it"
-           python3 tools/make_draft_dir.py "$MODEL_DIR" "$DRAFT_DIR" >/dev/null || true ;;
-      esac
-    fi
-    if [ -f "$DRAFT_DIR/config.json" ]; then DRAFT="$DRAFT_DIR"; DRAFT_NOTE=" (draft k=10)"
-    else echo "  note: DRAFT_K10=1 but $DRAFT_DIR does not exist -- drafting like the model. Create it with: python3 tools/make_draft_dir.py \"$MODEL_DIR\""; fi
-  fi
+  # The speculator ALWAYS loads from its own folder (tools/make_draft_dir.py): same weights through links, its own config.json
+  # with top-k 10 (faster, free) and the speculative head's own shared-expert width. Since the 2026-09 model update that width
+  # (640) differs from the model's (1280), so drafting from the model folder itself can no longer load -- the old DRAFT_K10=0
+  # switch is gone.
+  # A hub update lands in a NEW snapshot folder, so a draft folder built against the previous one would quietly feed the OLD
+  # speculative head to the server. Rebuild it when it is missing or its links no longer name the model folder in use.
+  case "$(readlink "$DRAFT_DIR/model.safetensors.index.json" 2>/dev/null)" in
+    *"$(basename "$MODEL_DIR")"/*) [ -f "$DRAFT_DIR/config.json" ] || python3 tools/make_draft_dir.py "$MODEL_DIR" "$DRAFT_DIR" >/dev/null || true ;;
+    *) echo "  building the draft folder for this copy of the model"
+       python3 tools/make_draft_dir.py "$MODEL_DIR" "$DRAFT_DIR" >/dev/null || true ;;
+  esac
+  [ -f "$DRAFT_DIR/config.json" ] || { echo "Could not build the draft folder $DRAFT_DIR -- run: python3 tools/make_draft_dir.py \"$MODEL_DIR\" \"$DRAFT_DIR\"  (or serve without speculation: MTP=0)" >&2; exit 1; }
+  DRAFT="$DRAFT_DIR"; DRAFT_NOTE=" (draft k=10)"
   RS=""; [ "$REJECTION_SAMPLE" != standard ] && RS=",\"rejection_sample_method\":\"$REJECTION_SAMPLE\""
   [ "$DRAFT_SAMPLE" != greedy ] && RS="$RS,\"draft_sample_method\":\"$DRAFT_SAMPLE\""
   SPEC=(--speculative-config "{\"method\":\"mtp\",\"num_speculative_tokens\":${MTP},\"model\":\"$DRAFT\"$RS}")
