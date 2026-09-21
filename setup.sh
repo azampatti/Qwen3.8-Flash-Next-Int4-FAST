@@ -21,10 +21,24 @@ mkdir -p "$MODELS_DIR"
 step "Building the upstream image (Saren-Arterius/qwen3.8-Flash-DGX-AutoRound)"
 if docker image inspect "$UPSTREAM_IMAGE" >/dev/null 2>&1; then
   echo "  already built: $UPSTREAM_IMAGE"
+  if [ -d upstream/.git ] && [ "$(git -C upstream rev-parse HEAD 2>/dev/null)" != "$UPSTREAM_COMMIT" ]; then
+    echo "  WARNING: that image was built from upstream $(git -C upstream rev-parse --short HEAD 2>/dev/null), not the pinned ${UPSTREAM_COMMIT:0:7}"
+    echo "           (setup.sh before 2026-09-21 could not apply the pin). To rebuild from the pin:"
+    echo "           docker rmi $IMAGE $UPSTREAM_IMAGE && rm -rf upstream && ./setup.sh"
+  fi
 else
   [ -d upstream ] || git clone --depth 1 "$UPSTREAM_REPO" upstream
-  git -C upstream fetch --depth 1 origin "$UPSTREAM_COMMIT" 2>/dev/null || true
-  git -C upstream checkout -q "$UPSTREAM_COMMIT" 2>/dev/null || echo "  note: could not pin $UPSTREAM_COMMIT, building the default branch"
+  # The pin is a HARD requirement: a short SHA cannot be fetched from a shallow clone, and the old fallback ("building the
+  # default branch") silently produced an image from whatever upstream had that day. UPSTREAM_COMMIT must be the full 40-hex SHA.
+  [[ "$UPSTREAM_COMMIT" =~ ^[0-9a-f]{40}$ ]] \
+    || { echo "  ERROR: UPSTREAM_COMMIT must be a full 40-character commit SHA (got '$UPSTREAM_COMMIT')"; exit 1; }
+  git -C upstream fetch --depth 1 origin "$UPSTREAM_COMMIT" \
+    || { echo "  ERROR: could not fetch the pinned upstream commit $UPSTREAM_COMMIT -- refusing to build an unpinned image"; exit 1; }
+  git -C upstream checkout -q "$UPSTREAM_COMMIT" \
+    || { echo "  ERROR: could not check out the pinned upstream commit $UPSTREAM_COMMIT"; exit 1; }
+  [ "$(git -C upstream rev-parse HEAD)" = "$UPSTREAM_COMMIT" ] \
+    || { echo "  ERROR: upstream/ is at $(git -C upstream rev-parse HEAD), not the pinned $UPSTREAM_COMMIT"; exit 1; }
+  echo "  pinned: upstream @ $UPSTREAM_COMMIT"
   echo "  building $UPSTREAM_IMAGE (20-40 min, this compiles kernels)"
   docker build -t "$UPSTREAM_IMAGE" upstream
 fi
