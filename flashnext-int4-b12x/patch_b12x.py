@@ -57,8 +57,14 @@ edit(f"{V}/model_executor/layers/quantization/auto_gptq.py",
                    "_fp8_hybrid_apply()\n",
      "fp8-hybrid", True)
 
+# The model code moved: images up to 2026-09-13 ship it as vllm/models/qwen3_8_flash_next/{model,mtp}.py; from the
+# 2026-09-21 image (vLLM 0.1.dev21473) it is vllm/models/qwen4_exp/nvidia/{model,mtp}.py (qwen3_8_flash_next is only a
+# compatibility alias there). Patch whichever this image has.
+MODEL_DIR = next((d for d in (f"{V}/models/qwen4_exp/nvidia", f"{V}/models/qwen3_8_flash_next")
+                  if os.path.isfile(f"{d}/model.py")), f"{V}/models/qwen3_8_flash_next")
+
 # 2. int4 lm_head ----------------------------------------------------------------------------------------------------
-edit(f"{V}/models/qwen3_8_flash_next/model.py",
+edit(f"{MODEL_DIR}/model.py",
      lambda s: once(s, '            prefix=maybe_prefix(prefix, "lm_head"),\n',
                     f'            quant_config=vllm_config.quant_config,  # {MARK}:int4-head\n'
                     '            prefix=maybe_prefix(prefix, "lm_head"),\n'),
@@ -144,7 +150,7 @@ def _scale(s):
         return None
     return pat.sub(lambda m: m.group(1) + m.group(2) +
                    f'scale=float(__import__("os").environ.get("VLLM_MTP_DRAFT_SCALE", "1.0")),  # {MARK}:draft-scale\n', s)
-edit(f"{V}/models/qwen3_8_flash_next/mtp.py", _scale, "draft-scale", False)
+edit(f"{MODEL_DIR}/mtp.py", _scale, "draft-scale", False)
 
 # 5. GDN fixes ---------------------------------------------------------------------------------------------------------
 fla = f"{V}/third_party/flash_linear_attention/ops"
