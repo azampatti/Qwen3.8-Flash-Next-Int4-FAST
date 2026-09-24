@@ -57,12 +57,14 @@ also installs a cluster recipe into Eugr's repo and prints the command to run it
 
 ## How it measures up
 
-Our own harness, so read it as a relative comparison. Capability is a trimmed average over 6 runs; tool use is 3 trials.
+Our own harness, so read it as a relative comparison. Capability is the average of 6 runs for this model (the original:
+median of 3). Tool use is Tool-Eval-Bench (69 scenarios, 3 trials). Both serving stacks score the same: 93 tool use on
+ours, 94 on Eugr's b12x.
 
 | | This model (5 experts) | Original (10 experts) |
 |---|---|---|
-| Capability | 47.6 | 51.8 |
-| Tool use | 85 | 86 |
+| Capability | ~50 | 51.8 |
+| Tool use | ~93 | 89 |
 | Speed | ~70-75 tok/s | ~57 tok/s |
 | Active parameters | 4.8B | 6.0B |
 
