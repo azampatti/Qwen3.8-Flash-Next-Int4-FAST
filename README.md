@@ -56,6 +56,13 @@ Nothing is taken on trust. Every run also checks:
 - **the two small things setup generates**, the draft folder and the draft-logit module: both are rebuilt when
   they no longer match the model folder or the image in use.
 
+**With Eugr's b12x stack.** If [eugr/spark-vllm-docker](https://github.com/eugr/spark-vllm-docker) is checked out at
+`~/spark-vllm-docker` (or wherever `EUGR_DIR` points), `setup.sh` pulls Eugr's b12x image, pinned by digest to the build
+this model was validated on, instead of building ours. It then installs this repo's b12x recipes and mod there
+(`eugr-setup.sh`) and prints how to run them. From then on `./serve.sh` launches through Eugr's `run-recipe.sh` with
+the single-node recipe. If the repo is missing or the pull fails, setup builds our image as usual. `BACKEND=classic`
+opts out, both for setup and for serving.
+
 The model goes into the **standard Hugging Face cache**, so if you already pulled it with `hf download` or your own
 script, setup finds it and downloads nothing. Other tools on the machine share the same copy. If you would rather have
 a plain folder of real files, run `DOWNLOAD_MODE=local ./setup.sh` instead.
@@ -82,6 +89,7 @@ or put any of them in front of the command for a single run.
 | Setting | Default | What it does |
 |---|---|---|
 | `MODEL_REPO` | `azampatti/Qwen3.8-...-AutoRound` | Which model to download and serve |
+| `BACKEND` | `auto` | `auto` serves with whatever `setup.sh` set up. `b12x` = Eugr's stack and the solo recipe: only `PORT`, `CTX`, `SEQS`, `KV_BYTES`, `SERVED_NAME`, `CONTAINER` and `EXTRA_ARGS` apply, and the recipe sets the rest (MTP 4, draft x2, `medium`). `classic` = our own image |
 | `SERVED_NAME` | `qwen3.8-flash-next-a5b` | The name clients send as `"model"` |
 | `PORT` | 8000 | Port to serve on |
 | `CTX` | 262144 | Longest single request |

@@ -11,6 +11,7 @@
 MODEL_REPO="${MODEL_REPO:-azampatti/Qwen3.8-Flash-Next-125B-A5B-INT4-AutoRound}"  # which model; setup.sh downloads this one
 SERVED_NAME="${SERVED_NAME:-qwen3.8-flash-next-a5b}"  # the name clients send as "model"
 PORT="${PORT:-8000}"                                  # host port for the OpenAI-compatible API
+BACKEND="${BACKEND:-auto}"                            # auto = what setup.sh set up (b12x when it found Eugr's spark-vllm-docker) | b12x | classic (our image). b12x runs the solo recipe: only PORT CTX SEQS KV_BYTES SERVED_NAME CONTAINER EXTRA_ARGS apply, the recipe sets the rest (MTP 4, draft x2, medium)
 
 CTX="${CTX:-262144}"                                  # max tokens in ONE request (prompt + output)
 SEQS="${SEQS:-8}"                                     # how many requests may run at the same time
@@ -52,6 +53,25 @@ DETACH=0; [ "${1:-}" = "-d" ] && DETACH=1
 
 [ -n "$MODEL_DIR" ] && [ -f "$MODEL_DIR/config.json" ] || { echo "Model not found (DOWNLOAD_MODE=$DOWNLOAD_MODE) -- run ./setup.sh first" >&2; exit 1; }
 [ -n "$TABLE_DIR" ] && [ -n "$(ls "$TABLE_DIR" 2>/dev/null)" ] || { echo "n-gram table not found -- run ./setup.sh first" >&2; exit 1; }
+
+# b12x: Eugr's spark-vllm-docker launches it, with the recipe + mod setup.sh (eugr-setup.sh) installed there. The mod checks
+# the model, builds the draft folder and patches vLLM inside the container, so none of the classic steps below apply.
+[ "$BACKEND" = auto ] && BACKEND="${SETUP_BACKEND:-classic}"
+if [ "$BACKEND" = b12x ]; then
+  RECIPE="$EUGR_DIR/recipes/$B12X_RECIPE"
+  eugr_present && [ -f "$RECIPE" ] && [ -d "$EUGR_DIR/mods/flashnext-int4-b12x" ] \
+    || { echo "The b12x recipe is not installed in $EUGR_DIR -- run ./setup.sh (or ./eugr-setup.sh), or BACKEND=classic ./serve.sh" >&2; exit 1; }
+  docker image inspect "$B12X_IMAGE" >/dev/null 2>&1 || { echo "Image $B12X_IMAGE not found -- run ./setup.sh" >&2; exit 1; }
+  [ "$DOWNLOAD_MODE" = cache ] || { echo "The b12x recipe reads the model from the Hugging Face cache (DOWNLOAD_MODE=cache)" >&2; exit 1; }
+  B12X=(--solo -t "$B12X_IMAGE" --port "$PORT" --max-model-len "$CTX" --name "$CONTAINER"); [ "$DETACH" = 1 ] && B12X+=(-d)
+  echo "Serving $MODEL_REPO with Eugr's b12x stack ($B12X_IMAGE, recipe $B12X_RECIPE) -- ${CTX} ctx, KV $KV_BYTES on port $PORT"
+  docker rm -f "$CONTAINER" >/dev/null 2>&1 || true
+  cd "$EUGR_DIR"
+  # Arguments after -- are appended to the recipe's vllm command; vLLM keeps the last value of a repeated flag.
+  HF_HOME="$HF_HOME" exec ./run-recipe.sh "$RECIPE" "${B12X[@]}" -- \
+    --served-model-name "$SERVED_NAME" --max-num-seqs "$SEQS" --kv-cache-memory-bytes "$KV_BYTES" $EXTRA_ARGS
+fi
+[ "$BACKEND" = classic ] || { echo "BACKEND must be auto, b12x or classic (got '$BACKEND')" >&2; exit 1; }
 
 # Mount every directory at the SAME absolute path it has on the host. The Hugging Face cache stores a snapshot as
 # symlinks into ../../blobs, so identical paths inside and outside the container are what keeps them resolving.
