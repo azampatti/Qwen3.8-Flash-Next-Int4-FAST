@@ -11,6 +11,26 @@
 # The mod (mods/flashnext-int4-b12x) checks the model on every node, builds the served-model view and the slim MTP draft
 # folder inside each container (symlinks + small JSON, zero copy) and patches the container's vLLM for this checkpoint.
 #
+# STATUS (log audit of boot 5, 2026-09-23): weights 244 s, draft 21 s, 39.48 GiB/node, engine init 44 s (AOT cache hit), ~6.5 min to
+#   ready. Verified in the log: NCCL uses BOTH 200G links (NET/IB/0 + /1, 64 channels; no GDR = normal on GB10); RoCEnante live for the
+#   TP group (all-reduce <=2 MB, all-gather <=16 MB, first decode all-reduce 80 KB) and the MoE combine is a TP all-reduce (EP dispatch
+#   kernels only exist with DP>1) -> every decode collective is RoCE; cudagraph FULL_AND_PIECEWISE with FULL uniform-decode graphs at
+#   5/10/20/40/80 tokens (exact fit for MTP 4, no padding), 11 varlen FULL, 23 PIECEWISE; b12x fp8/GDN/QSA kernels, Marlin int4.
+#   Nothing misconfigured. Measured: MTP 3 = 97.8 tok/s (6 runs), MTP 4 ~104-105 (cluster default); solo b12x 75.6, serve.sh 71.7.
+#   Remaining gap vs 2x is structural (unsplit host work per step, EP hit imbalance ~58/42, 4 draft passes, 42 MB prefill all-reduces
+#   over NCCL). VLLM_PLE_TABLE_MEMORY=ram tested 2026-09-23: same speed as disk (boots fine, 23.84 GiB/rank) -> disk stays.
+#   Log trap: run-recipe prints only to the tmux pane (2000-line history, NCCL INFO floods it) -> tee or `tmux pipe-pane` the launch.
+#
+
+# 2026-09-25 MTP + prefix-cache settings (measured, Prunning/qwen38_flash_next/MTP_GREEDY_MATRIX.md):
+#   - draft_sample_method "greedy" (was "probabilistic"): the community mitigation for the MTP degenerate-loop bug (NaN drafter
+#     logits after concurrent chunked prefill get accepted by probabilistic sampling). k=4 greedy = same single-stream speed as
+#     probabilistic on both images (run.py 74.7 vs 75.3 / 78.4 vs 77.0 tok/s), acceptance a few points lower, ~8-10 % less
+#     aggregate throughput at 4 concurrent streams; k=3 greedy is 5-7 % slower than k=4 -> keep 4.
+#   - --recurrent-checkpoint-policy aligned: builds from 09-21 on know this checkpoint's model_type (qwen4_exp) and switch it to the
+#     "request_boundaries" recurrent-checkpoint policy, under which repeated prompts never hit the prefix cache (1.4 % hit rate,
+#     Phase 11 re-prefills ~60K tokens every time); "aligned" restores block-aligned GDN checkpoints = ~75 % hits like the pinned
+#     09-13 image (which ignores the policy for this model, so the flag is a no-op there).
 
 recipe_version: "1"
 name: Qwen3.8-Flash-Next-INT4-AutoRound (b12x, 2 nodes)
@@ -55,7 +75,8 @@ env:
   B12X_POLICY_MODE: "auto"
   VLLM_ENABLE_ROCE_ALLREDUCE: "1"
   VLLM_ROCE_ALLREDUCE_MAX_SIZE: "2MB"
-  VLLM_PLE_TABLE_MEMORY: "disk"
+  VLLM_PLE_TABLE_MEMORY: "disk"      # A/B 2026-09-23: "ram" (~24 GB/node resident, graph-captured lookup) = same tok/s as disk at MTP 4,
+                                     # not distinguishable -> disk keeps 24 GB/node free. The eager per-step disk lookup is not a bottleneck.
   # this checkpoint (patched in by the mod; as in serve.sh)
   VLLM_FP8_HYBRID: "1"
   VLLM_MARLIN_USE_ATOMIC_ADD: "1"
@@ -74,6 +95,7 @@ command: |
     --enable-expert-parallel \
     --linear-backend b12x \
     --mamba-cache-mode align \
+    --recurrent-checkpoint-policy aligned \
     --enable-prefix-caching \
     --enable-chunked-prefill \
     --dtype bfloat16 \
@@ -92,4 +114,4 @@ command: |
     --tool-call-parser qwen3_coder \
     --reasoning-parser qwen3 \
     --chat-template /workspace/flashnext/model/{chat_template} \
-    --speculative-config '{{"method":"mtp","num_speculative_tokens":{num_speculative_tokens},"model":"/workspace/flashnext/draft-k10","rejection_sample_method":"block","draft_sample_method":"probabilistic"}}'
+    --speculative-config '{{"method":"mtp","num_speculative_tokens":{num_speculative_tokens},"model":"/workspace/flashnext/draft-k10","rejection_sample_method":"block","draft_sample_method":"greedy"}}'

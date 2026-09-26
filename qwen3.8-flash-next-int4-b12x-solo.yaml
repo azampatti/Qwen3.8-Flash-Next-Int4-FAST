@@ -5,6 +5,16 @@
 # folder inside each container (symlinks + small JSON, zero copy) and patches the container's vLLM for this checkpoint.
 #
 
+# 2026-09-25 MTP + prefix-cache settings (measured, Prunning/qwen38_flash_next/MTP_GREEDY_MATRIX.md):
+#   - draft_sample_method "greedy" (was "probabilistic"): the community mitigation for the MTP degenerate-loop bug (NaN drafter
+#     logits after concurrent chunked prefill get accepted by probabilistic sampling). k=4 greedy = same single-stream speed as
+#     probabilistic on both images (run.py 74.7 vs 75.3 / 78.4 vs 77.0 tok/s), acceptance a few points lower, ~8-10 % less
+#     aggregate throughput at 4 concurrent streams; k=3 greedy is 5-7 % slower than k=4 -> keep 4.
+#   - --recurrent-checkpoint-policy aligned: builds from 09-21 on know this checkpoint's model_type (qwen4_exp) and switch it to the
+#     "request_boundaries" recurrent-checkpoint policy, under which repeated prompts never hit the prefix cache (1.4 % hit rate,
+#     Phase 11 re-prefills ~60K tokens every time); "aligned" restores block-aligned GDN checkpoints = ~75 % hits like the pinned
+#     09-13 image (which ignores the policy for this model, so the flag is a no-op there).
+
 recipe_version: "1"
 name: Qwen3.8-Flash-Next-INT4-AutoRound (b12x, single node)
 description: azampatti/Qwen3.8-Flash-Next-125B-A5B-INT4-AutoRound (V8, top-k 5) on a single DGX Spark / GB10 with the b12x stack
@@ -67,6 +77,7 @@ command: |
     --pipeline-parallel-size {pipeline_parallel} \
     --enable-expert-parallel \
     --mamba-cache-mode align \
+    --recurrent-checkpoint-policy aligned \
     --linear-backend b12x \
     --enable-prefix-caching \
     --enable-chunked-prefill \
@@ -86,4 +97,4 @@ command: |
     --tool-call-parser qwen3_coder \
     --reasoning-parser qwen3 \
     --chat-template /workspace/flashnext/model/{chat_template} \
-    --speculative-config '{{"method":"mtp","num_speculative_tokens":{num_speculative_tokens},"model":"/workspace/flashnext/draft-k10","rejection_sample_method":"block","draft_sample_method":"probabilistic"}}'
+    --speculative-config '{{"method":"mtp","num_speculative_tokens":{num_speculative_tokens},"model":"/workspace/flashnext/draft-k10","rejection_sample_method":"block","draft_sample_method":"greedy"}}'
