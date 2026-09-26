@@ -152,7 +152,7 @@ exec docker run "${RUN[@]}" --name "$CONTAINER" \
   "$IMAGE" "$MODEL_ARG" --served-model-name "$SERVED_NAME" \
     --host 0.0.0.0 --port 8000 --load-format fastsafetensors \
     --max-model-len "$CTX" --max-num-seqs "$SEQS" --gpu-memory-utilization "$GPU_MEM_UTIL" --kv-cache-memory-bytes "$KV_BYTES" \
-    --enable-prefix-caching --enable-chunked-prefill --max-num-batched-tokens "$BATCHED_TOKENS" \
+    --enable-prefix-caching --enable-prompt-tokens-details --enable-chunked-prefill --max-num-batched-tokens "$BATCHED_TOKENS" \
     -cc.cudagraph_mode=PIECEWISE -cc.splitting_ops="$SPLIT" --no-enable-flashinfer-autotune \
     --kv-cache-dtype "$KV_DTYPE" \
     --enable-auto-tool-choice --tool-call-parser "$TOOL_PARSER" --reasoning-parser "$REASONING_PARSER" \
