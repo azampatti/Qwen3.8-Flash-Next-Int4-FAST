@@ -1,6 +1,6 @@
 #!/bin/bash
 # Multi-prompt parallel benchmark — different prompts per stream
-# Usage: ./bench_multi_nothink.sh [-v] [N]  (N = 1-8, default 1)
+# Usage: ./bench.sh [-v] [N]  (N = 1-8, default 1)
 #
 # Identical to bench_multi.sh except every request sends
 # chat_template_kwargs.enable_thinking=false. The original leaves thinking
