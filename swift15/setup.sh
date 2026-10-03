@@ -106,11 +106,13 @@ fi
 command -v docker >/dev/null && ! docker image inspect "$B12X_IMAGE" >/dev/null 2>&1 && \
   say "WARNING: no '$B12X_IMAGE' image on this host -- run the base model's setup.sh (or eugr-setup.sh --pull-only) to get the pinned b12x image"
 
+# colours only on a terminal (NO_COLOR=1 turns them off): bright white = titles, pink = commands to run
+if [ -t 1 ] && [ -z "${NO_COLOR:-}" ]; then W=$'\e[1;97m'; K=$'\e[38;5;213m'; R=$'\e[0m'; else W=; K=; R=; fi
 cat <<EOF
 
-Qwen3.8-Flash-Next-Swift1.5 is ready. Serve it from $EUGR_DIR:
-  ./run-recipe.sh recipes/qwen3.8-flash-next-swift15-b12x-solo.yaml --solo   # one DGX Spark
-  ./run-recipe.sh recipes/qwen3.8-flash-next-swift15-b12x.yaml               # two nodes (run this setup on BOTH first; launch on the head)
-API: http://<host>:8000/v1, model name azampatti/Qwen3.8-Flash-Next-Swift1.5. Reasoning effort is xhigh unless a request sets
-"reasoning_effort": "medium" (or "low"). Stop: docker rm -f vllm_node (or the --name you gave run-recipe).
+${W}Qwen3.8-Flash-Next-Swift1.5 is ready. Serve it from $EUGR_DIR:${R}
+  ${K}./run-recipe.sh recipes/qwen3.8-flash-next-swift15-b12x-solo.yaml --solo${R}   # one DGX Spark
+  ${K}./run-recipe.sh recipes/qwen3.8-flash-next-swift15-b12x.yaml${R}               # two nodes (run this setup on BOTH first; launch on the head)
+${W}API:${R} http://<host>:8000/v1, model name azampatti/Qwen3.8-Flash-Next-Swift1.5. Reasoning effort is xhigh unless a request sets
+"reasoning_effort": "medium" (or "low"). ${W}Stop:${R} ${K}docker rm -f vllm_node${R} (or the --name you gave run-recipe).
 EOF
