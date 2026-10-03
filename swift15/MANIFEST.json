@@ -1,0 +1,29 @@
+{
+ "name": "Qwen3.8-Flash-Next-Swift1.5 (azampatti)",
+ "version": "v11-s2050",
+ "base_model": {
+  "repo": "azampatti/Qwen3.8-Flash-Next-125B-A5B-INT4-AutoRound",
+  "revision": "1464274120d36a4d8fcaa934552334a7d83ce0fd"
+ },
+ "files": {
+  "model-healed-shared-expert.safetensors": {
+   "sha256": "de3aec125c78f452c8995b52393ee5860c89c48d6e157ac93f3f0930fefec5b4",
+   "bytes": 472267136
+  },
+  "model.safetensors.index.json": {
+   "sha256": "248f79ef4ed2eaba040a5b7b95948675810cb4cb9d44df730f50955810b783aa",
+   "bytes": 22916754
+  },
+  "model-swift15-attn.safetensors": {
+   "sha256": "41798532196c0a04042abc0a13f1367e7810c03f1131044d3ace5de648acfe3e",
+   "bytes": 2674564112
+  }
+ },
+ "contents": {
+  "model-swift15-attn.safetensors": "ukisai/Swift1.5-Qwen3.8-Flash-Next attention projections (156 tensors: GDN in_proj_qkv/in_proj_z/out_proj, QSA q/k/v/o), block-quantised to fp8 e4m3 with 128x128 scales exactly like the base model's attention (312 tensors incl. weight_scale_inv)",
+  "model-healed-shared-expert.safetensors": "shared expert healed on the Swift1.5 trunk (V11: HEAL-B KL recipe, Swift-generated xhigh corpus, epoch 2 stopped at global step 2050): 48 layers x gate/up/down 1280-wide fp8 e4m3 + scales, plus the 48 trained shared_expert_gate rows in bf16 (336 tensors; same names/shapes as the base file it replaces)",
+  "model.safetensors.index.json": "the base model's index with the 312 attention keys pointed at model-swift15-attn.safetensors"
+ },
+ "unchanged_from_base": "everything else: int4 AutoRound routed experts (top-k 5), int4 lm_head, fp8 PLE table, MTP speculative head, embeddings, norms, config.json (identical), chat templates",
+ "serving": "eugr spark-vllm-docker, vllm-node-b12x image (same as the base model's b12x recipes); recipes in eugr/"
+}

@@ -1,0 +1,102 @@
+# Recipe: Qwen3.8-Flash-Next-Swift1.5 (azampatti) on TWO DGX Spark / GB10 nodes, eugr's b12x serving stack
+# The published azampatti/Qwen3.8-Flash-Next-125B-A5B-INT4-AutoRound (top-k 5, int4 experts + int4 lm_head, fp8 PLE table from disk,
+# our MTP head) with ukisai's Swift1.5 attention (fp8) and a shared expert healed on that trunk (V11, epoch 2 step 2050).
+# Thinks ~0.6x the tokens of the base model at the same accuracy on GPQA / AIME / MATH; best at xhigh, which is the default here.
+# Split over two nodes: tensor parallel 2 + expert parallel, b12x's RoCE all-reduce for the cross-node sums.
+#
+# LAUNCH:   ./run-recipe.sh recipes/qwen3.8-flash-next-swift15-b12x.yaml          run on the HEAD node; API on the head node :8000
+#
+# NEEDS (nothing else to copy or build):
+#   on BOTH nodes:
+#   - the vllm-node-b12x image, identical on both (eugr's build-and-copy.sh copies it to the worker)
+#   - the base model in the Hugging Face cache (~/Qwen3.8-Flash-Next-Int4-FAST/setup.sh), then
+#     ~/Qwen3.8-Flash-Next-Int4-FAST/swift15/setup.sh, which adds the Swift1.5 files and installs this recipe + its mod
+# The mod (mods/flashnext-swift15-b12x) checks the variant, builds the served-model view and the slim MTP draft folder inside
+# the container (symlinks + small JSON, zero copy) and patches the container's vLLM for this checkpoint.
+#
+# Template: the model's stock chat template (reasoning effort xhigh unless the request asks for medium/low). Settings below are the
+# base model's measured b12x settings (MTP 5 greedy draft, block 1632, batched 8192, recurrent checkpoints aligned).
+
+recipe_version: "1"
+name: Qwen3.8-Flash-Next-Swift1.5 (b12x, 2 nodes)
+description: Qwen3.8-Flash-Next-Swift1.5 (azampatti), the INT4-AutoRound base with Swift1.5 attention + V11 shared expert, top-k 5, on two DGX Spark / GB10 with the b12x stack and RoCE all-reduce, TP 2 + expert parallel
+
+model: azampatti/Qwen3.8-Flash-Next-125B-A5B-INT4-AutoRound
+container: vllm-node-b12x
+
+build_args:
+  - --exp-b12x
+
+cluster_only: true
+
+mods:
+  - mods/flashnext-swift15-b12x
+
+defaults:
+  port: 8000
+  host: 0.0.0.0
+  tensor_parallel: 2
+  pipeline_parallel: 1
+  served_name: azampatti/Qwen3.8-Flash-Next-Swift1.5
+  max_model_len: 262144
+  max_num_seqs: 16
+  max_num_batched_tokens: 8192       # cluster sweep at MTP 6, 8 streams: 8192 = 320 tok/s, 16384 = 314, 24576 = 319, 32768 = 311 (flat for short prompts); each +8192 costs ~8 GiB free RAM per node
+  block_size: 1632                   # MTP 5: the QSA ring is 12 rows, which must divide the page (1632 = 12 x 136 = 8 x 204)
+  kv_cache_bytes: 20g
+  gpu_memory_utilization: 0.01
+  num_speculative_tokens: 5          # needs the mod's mtp-cap patch (b12x caps 4). Cluster sweep 2026-09-27 (greedy, batched 8192), run.py tok/s: 3 = 96.8, 4 = 103.9, 5 = 109.2, 6 = 112.7, 7 = 110.8; 4 short concurrent requests: 159 at 4-5 vs 143 at 6 -> 5 balances one user and several
+  load_format: safetensors
+  chat_template: chat_template.jinja   # stock template: xhigh by default (Swift1.5's strength); medium_chat_template.jinja = medium
+
+env:
+  HF_HUB_OFFLINE: "1"
+  # b12x stack (as in the working qwen3.8-flash-next-nvfp4-cluster recipe)
+  CUTE_DSL_ARCH: "sm_121a"
+  VLLM_WORKER_MULTIPROC_METHOD: "spawn"
+  VLLM_SSM_CONV_STATE_LAYOUT: "DS"
+  VLLM_USE_AOT_COMPILE: "1"
+  VLLM_USE_MEGA_AOT_ARTIFACT: "1"
+  VLLM_USE_V2_MODEL_RUNNER: "1"
+  B12X_POLICY_MODE: "auto"
+  VLLM_ENABLE_ROCE_ALLREDUCE: "1"
+  VLLM_ROCE_ALLREDUCE_MAX_SIZE: "2MB"
+  VLLM_PLE_TABLE_MEMORY: "disk"      # A/B 2026-09-23: "ram" (~24 GB/node resident, graph-captured lookup) = same tok/s as disk at MTP 4,
+                                     # not distinguishable -> disk keeps 24 GB/node free. The eager per-step disk lookup is not a bottleneck.
+  # this checkpoint (patched in by the mod; as in serve.sh)
+  VLLM_FP8_HYBRID: "1"
+  VLLM_MARLIN_USE_ATOMIC_ADD: "1"
+  VLLM_USE_DEEP_GEMM: "0"
+  VLLM_USE_FLASHINFER_SAMPLER: "1"
+  VLLM_MTP_DRAFT_SCALE: "2"
+
+command: |
+  vllm serve /workspace/flashnext/model \
+    --served-model-name {served_name} \
+    --host {host} \
+    --port {port} \
+    --trust-remote-code \
+    --tensor-parallel-size {tensor_parallel} \
+    --pipeline-parallel-size {pipeline_parallel} \
+    --enable-expert-parallel \
+    --linear-backend b12x \
+    --mamba-cache-mode align \
+    --recurrent-checkpoint-policy aligned \
+    --enable-prefix-caching \
+    --enable-chunked-prefill \
+    --dtype bfloat16 \
+    --kv-cache-dtype auto \
+    --block-size {block_size} \
+    --load-format {load_format} \
+    --max-model-len {max_model_len} \
+    --max-num-seqs {max_num_seqs} \
+    --max-num-batched-tokens {max_num_batched_tokens} \
+    --gpu-memory-utilization {gpu_memory_utilization} \
+    --kv-cache-memory-bytes {kv_cache_bytes} \
+    --gdn-decode-kernel b12x \
+    --no-enable-flashinfer-autotune \
+    --mm-encoder-tp-mode data \
+    --enable-auto-tool-choice \
+    --tool-call-parser qwen3_coder \
+    --reasoning-parser qwen3 \
+    --chat-template /workspace/flashnext/model/{chat_template} \
+    --speculative-config '{{"method":"mtp","num_speculative_tokens":{num_speculative_tokens},"model":"/workspace/flashnext/draft-k10","rejection_sample_method":"block","draft_sample_method":"greedy"}}'

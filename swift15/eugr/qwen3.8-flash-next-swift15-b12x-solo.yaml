@@ -1,0 +1,100 @@
+# Recipe: Qwen3.8-Flash-Next-Swift1.5 (azampatti) on ONE DGX Spark / GB10, eugr's b12x serving stack
+# The published azampatti/Qwen3.8-Flash-Next-125B-A5B-INT4-AutoRound (top-k 5, int4 experts + int4 lm_head, fp8 PLE table from disk,
+# our MTP head) with ukisai's Swift1.5 attention (fp8) and a shared expert healed on that trunk (V11, epoch 2 step 2050).
+# Thinks ~0.6x the tokens of the base model at the same accuracy on GPQA / AIME / MATH; best at xhigh, which is the default here.
+#
+# LAUNCH:   ./run-recipe.sh recipes/qwen3.8-flash-next-swift15-b12x-solo.yaml --solo        API on :8000
+#
+# NEEDS (nothing else to copy or build):
+#   - the vllm-node-b12x image (the same one the base model's recipes use)
+#   - the base model in the Hugging Face cache (~/Qwen3.8-Flash-Next-Int4-FAST/setup.sh), then
+#     ~/Qwen3.8-Flash-Next-Int4-FAST/swift15/setup.sh, which adds the Swift1.5 files and installs this recipe + its mod
+# The mod (mods/flashnext-swift15-b12x) checks the variant, builds the served-model view and the slim MTP draft folder inside
+# the container (symlinks + small JSON, zero copy) and patches the container's vLLM for this checkpoint.
+#
+# Template: the model's stock chat template (reasoning effort xhigh unless the request asks for medium/low). Settings below are the
+# base model's measured b12x settings (MTP 5 greedy draft, block 1632, batched 8192, recurrent checkpoints aligned).
+
+recipe_version: "1"
+name: Qwen3.8-Flash-Next-Swift1.5 (b12x, single node)
+description: Qwen3.8-Flash-Next-Swift1.5 (azampatti), the INT4-AutoRound base with Swift1.5 attention + V11 shared expert, top-k 5, on one DGX Spark / GB10 with the b12x stack
+
+model: azampatti/Qwen3.8-Flash-Next-125B-A5B-INT4-AutoRound
+container: vllm-node-b12x
+
+build_args:
+  - --exp-b12x
+
+cluster_only: false
+solo_only: true
+
+mods:
+  - mods/flashnext-swift15-b12x
+
+defaults:
+  port: 8000
+  host: 0.0.0.0
+  tensor_parallel: 1
+  pipeline_parallel: 1
+  served_name: azampatti/Qwen3.8-Flash-Next-Swift1.5
+  max_model_len: 262144
+  max_num_seqs: 8
+  max_num_batched_tokens: 8192
+  block_size: 1632                   # MTP 5: the QSA ring is 12 rows, which must divide the page (1632 = 12 x 136 = 8 x 204)
+  kv_cache_bytes: 20g
+  gpu_memory_utilization: 0.01
+  num_speculative_tokens: 5          # needs the mod's mtp-cap patch (b12x caps 4). 2026-09-27 sweep, run.py tok/s: 3 = 71.2, 4 = 76.0, 5-7 = 79.2 (8 refused by b12x)
+  load_format: fastsafetensors
+  chat_template: chat_template.jinja   # stock template: xhigh by default (Swift1.5's strength); medium_chat_template.jinja = medium
+
+env:
+  HF_HUB_OFFLINE: "1"
+  # b12x stack (as in the working qwen3.8-flash-next-nvfp4-cluster recipe)
+  CUTE_DSL_ARCH: "sm_121a"
+  VLLM_WORKER_MULTIPROC_METHOD: "spawn"
+  VLLM_SSM_CONV_STATE_LAYOUT: "DS"
+  VLLM_USE_AOT_COMPILE: "1"
+  VLLM_USE_MEGA_AOT_ARTIFACT: "1"
+  VLLM_USE_V2_MODEL_RUNNER: "1"
+  B12X_POLICY_MODE: "auto"
+  VLLM_ENABLE_ROCE_ALLREDUCE: "1"
+  VLLM_ROCE_ALLREDUCE_MAX_SIZE: "2MB"
+  VLLM_PLE_TABLE_MEMORY: "disk"
+  # this checkpoint (patched in by the mod; as in serve.sh)
+  VLLM_FP8_HYBRID: "1"
+  VLLM_MARLIN_USE_ATOMIC_ADD: "1"
+  VLLM_USE_DEEP_GEMM: "0"
+  VLLM_USE_FLASHINFER_SAMPLER: "1"
+  VLLM_MTP_DRAFT_SCALE: "2"
+
+command: |
+  vllm serve /workspace/flashnext/model \
+    --served-model-name {served_name} \
+    --host {host} \
+    --port {port} \
+    --trust-remote-code \
+    --tensor-parallel-size {tensor_parallel} \
+    --pipeline-parallel-size {pipeline_parallel} \
+    --enable-expert-parallel \
+    --mamba-cache-mode align \
+    --recurrent-checkpoint-policy aligned \
+    --linear-backend b12x \
+    --enable-prefix-caching \
+    --enable-chunked-prefill \
+    --dtype bfloat16 \
+    --kv-cache-dtype auto \
+    --block-size {block_size} \
+    --load-format {load_format} \
+    --max-model-len {max_model_len} \
+    --max-num-seqs {max_num_seqs} \
+    --max-num-batched-tokens {max_num_batched_tokens} \
+    --gpu-memory-utilization {gpu_memory_utilization} \
+    --kv-cache-memory-bytes {kv_cache_bytes} \
+    --gdn-decode-kernel b12x \
+    --no-enable-flashinfer-autotune \
+    --mm-encoder-tp-mode data \
+    --enable-auto-tool-choice \
+    --tool-call-parser qwen3_coder \
+    --reasoning-parser qwen3 \
+    --chat-template /workspace/flashnext/model/{chat_template} \
+    --speculative-config '{{"method":"mtp","num_speculative_tokens":{num_speculative_tokens},"model":"/workspace/flashnext/draft-k10","rejection_sample_method":"block","draft_sample_method":"greedy"}}'
