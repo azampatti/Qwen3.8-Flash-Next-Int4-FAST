@@ -17,6 +17,8 @@ never modified -- a new container starts clean and the mod re-applies this.
     mtp-cap      lets b12x's QSA take up to 7 speculative tokens (stock cap 4); the solo recipe runs 5.
     GDN fixes    spark-fla-shmem (GB10 gets the big GDN tiles) and spark-fla-warps (num_warps=2: fla#953 Blackwell race
                  that corrupts GDN state on the prefix-cache path), same one-liners as the qwen38-flash-dgx image.
+    penalties    server-default presence/frequency penalty from --override-generation-config (stock vLLM drops both
+                 keys, and requests default them to 0.0); a request that sets the field keeps its own value.
 
   usage: patch_b12x.py <mod dir>
 """
@@ -177,6 +179,26 @@ edit(f"{fla}/utils.py", lambda s: once(s, "DEFAULT = 102400", f"DEFAULT = 101376
 edit(f"{fla}/chunk_delta_h.py",
      lambda s: once(s, "for num_warps in [2, 4]", f"for num_warps in [2]  # {MARK}:fla-warps fla#953"),
      "fla-warps", False)
+
+# 7. server-default presence/frequency penalty ------------------------------------------------------------------------
+# vLLM takes server-wide sampling defaults from --override-generation-config only for temperature/top_p/top_k/min_p/
+# repetition_penalty, and the OpenAI requests default presence_penalty to 0.0, so a server default never applies. Recipes
+# set --override-generation-config '{"presence_penalty":0.5}' against looping thinking blocks: let that key through and use
+# it when the request does not set the field itself (a request that sends presence_penalty, even 0, keeps its own value).
+edit(f"{V}/config/model.py",
+     lambda s: once(s, '            "min_p",\n            "max_new_tokens",\n',
+                    '            "min_p",\n            "max_new_tokens",\n'
+                    f'            "presence_penalty",  # {MARK}:default-penalties\n            "frequency_penalty",\n'),
+     "default-penalties", False)
+for _proto in ("chat_completion", "completion"):
+    edit(f"{V}/entrypoints/openai/{_proto}/protocol.py",
+         lambda s: once(s, "            presence_penalty=self.presence_penalty,\n"
+                           "            frequency_penalty=self.frequency_penalty,\n",
+                        f"            presence_penalty=(self.presence_penalty if 'presence_penalty' in self.model_fields_set  # {MARK}:request-penalty-default\n"
+                        "                else default_sampling_params.get('presence_penalty', self.presence_penalty)),\n"
+                        "            frequency_penalty=(self.frequency_penalty if 'frequency_penalty' in self.model_fields_set\n"
+                        "                else default_sampling_params.get('frequency_penalty', self.frequency_penalty)),\n"),
+         f"request-penalty-default", False)
 
 print("patched: " + ", ".join(done) + ("" if not warn else " | WARNING (optional, skipped): " + "; ".join(warn)))
 if fatal:

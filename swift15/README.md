@@ -50,6 +50,9 @@ The recipes serve the model's stock chat template, so the default effort is **xh
 `"reasoning_effort": "medium"` (or `"low"`) per request to change it, or `chat_template: medium_chat_template.jinja` in the recipe
 to make medium the default.
 
+The recipes also set a server-default `presence_penalty` of 0.5 against repeated loops in thinking blocks; a request
+that sends its own value keeps it.
+
 ## Results
 
 All results were measured against the base model (Production V8) on the same b12x stack, with the same questions, seeds and

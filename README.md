@@ -55,6 +55,10 @@ request), `SEQS` (requests at once) and `KV_BYTES` (KV cache size; 20g holds ~64
 stack the speculative-decoding settings come from the recipe, not from `serve.sh`. For **two nodes**, `setup.sh`
 also installs a cluster recipe into Eugr's repo and prints the command to run it.
 
+The b12x recipes set a server-default `presence_penalty` of 0.5 (`presence_penalty:` in the recipe) to damp repeated
+loops in thinking blocks; a request that sends its own `presence_penalty` keeps it. The mod patches vLLM so this default
+applies at all: stock vLLM ignores `presence_penalty` in `--override-generation-config`.
+
 ## How it measures up
 
 Our own harness, so read it as a relative comparison. Capability is the average of 6 runs for this model (the original:
