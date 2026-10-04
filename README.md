@@ -59,6 +59,11 @@ The b12x recipes set a server-default `presence_penalty` of 0.5 (`presence_penal
 loops in thinking blocks; a request that sends its own `presence_penalty` keeps it. The mod patches vLLM so this default
 applies at all: stock vLLM ignores `presence_penalty` in `--override-generation-config`.
 
+The recipes also default `temperature` to 0.6 (clients that send their own keep it): with the speculative-decoding
+head, 0.6 decodes 10-20 % faster than the model's 1.0 on real agent traffic. The two-node recipe loads with fastsafetensors
+through `fst-ep-local/`, a second mod that `eugr-setup.sh` installs: each node reads only its own half of the experts from
+its own disk (about 35 s instead of about 4 minutes, and no cross-node broadcast).
+
 ## How it measures up
 
 Our own harness, so read it as a relative comparison. Capability is the average of 6 runs for this model (the original:

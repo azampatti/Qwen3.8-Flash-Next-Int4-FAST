@@ -98,8 +98,9 @@ PY
 # 4. eugr's spark-vllm-docker
 if [ -d "$EUGR_DIR/recipes" ] && [ -d "$EUGR_DIR/mods" ]; then
   rm -rf "$EUGR_DIR/mods/$MOD"; cp -r "eugr/$MOD" "$EUGR_DIR/mods/$MOD"
+  rm -rf "$EUGR_DIR/mods/fst-ep-local"; cp -r "../fst-ep-local" "$EUGR_DIR/mods/fst-ep-local"   # shared with the base recipes (cluster loader)
   for r in "${RECIPES[@]}"; do cp "eugr/$r" "$EUGR_DIR/recipes/"; done
-  say "installed mods/$MOD + ${RECIPES[*]} into $EUGR_DIR"
+  say "installed mods/$MOD + mods/fst-ep-local + ${RECIPES[*]} into $EUGR_DIR"
 else
   say "eugr's spark-vllm-docker not found at $EUGR_DIR -- copy eugr/$MOD into its mods/ and eugr/*.yaml into its recipes/ yourself"
 fi

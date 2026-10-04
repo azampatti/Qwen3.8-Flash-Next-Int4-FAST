@@ -31,6 +31,7 @@ cluster_only: true
 
 mods:
   - mods/flashnext-swift15-b12x
+  - mods/fst-ep-local               # AFTER the model mod: each node reads only its own experts, no cross-node broadcast
 
 defaults:
   port: 8000
@@ -45,8 +46,9 @@ defaults:
   kv_cache_bytes: 20g
   gpu_memory_utilization: 0.01
   num_speculative_tokens: 5          # needs the mod's mtp-cap patch (b12x caps 4). Cluster sweep 2026-09-27 (greedy, batched 8192), run.py tok/s: 3 = 96.8, 4 = 103.9, 5 = 109.2, 6 = 112.7, 7 = 110.8; 4 short concurrent requests: 159 at 4-5 vs 143 at 6 -> 5 balances one user and several
-  load_format: safetensors
+  load_format: fastsafetensors      # per-node + expert-filtered via mods/fst-ep-local: ~35 s weight load vs ~235 s safetensors
   chat_template: chat_template.jinja   # stock template: xhigh by default (Swift1.5's strength); medium_chat_template.jinja = medium
+  temperature: 0.6                   # server default (requests that set it keep theirs): +10-20 % MTP decode vs 1.0 on real opencode traffic
   presence_penalty: 0.5              # server default (requests that set it keep theirs); damps repeated loops in thinking blocks
 
 env:
@@ -99,6 +101,6 @@ command: |
     --enable-auto-tool-choice \
     --tool-call-parser qwen3_coder \
     --reasoning-parser qwen3 \
-    --override-generation-config '{{"presence_penalty":{presence_penalty}}}' \
+    --override-generation-config '{{"presence_penalty":{presence_penalty},"temperature":{temperature}}}' \
     --chat-template /workspace/flashnext/model/{chat_template} \
     --speculative-config '{{"method":"mtp","num_speculative_tokens":{num_speculative_tokens},"model":"/workspace/flashnext/draft-k10","rejection_sample_method":"block","draft_sample_method":"greedy"}}'

@@ -9,6 +9,7 @@ cd "$(dirname "$0")"; source ./config.env   # EUGR_DIR, B12X_IMAGE, B12X_IMAGE_P
 
 PULL_ONLY=0; [ "${1:-}" = "--pull-only" ] && PULL_ONLY=1
 MOD=flashnext-int4-b12x
+FST_MOD=fst-ep-local         # per-node fastsafetensors loading for the cluster recipe (see fst-ep-local/run.sh)
 RECIPES=(qwen3.8-flash-next-int4-b12x-solo.yaml qwen3.8-flash-next-int4-b12x.yaml)
 
 if ! eugr_present; then
@@ -19,7 +20,7 @@ if ! eugr_present; then
   exit 1
 fi
 
-for f in "$MOD" "${RECIPES[@]}"; do
+for f in "$MOD" "$FST_MOD" "${RECIPES[@]}"; do
   [ -e "$f" ] || { echo "Missing $f in $(pwd) -- run 'git pull' in this folder first." >&2; exit 1; }
 done
 
@@ -34,14 +35,17 @@ else
 fi
 [ "$PULL_ONLY" = 1 ] && exit 0
 
-rm -rf "$EUGR_DIR/mods/$MOD"
-cp -r "$MOD" "$EUGR_DIR/mods/$MOD"
+for m in "$MOD" "$FST_MOD"; do
+  rm -rf "$EUGR_DIR/mods/$m"
+  cp -r "$m" "$EUGR_DIR/mods/$m"
+done
 cp "${RECIPES[@]}" "$EUGR_DIR/recipes/"
 
 echo "Image: $B12X_IMAGE = $B12X_IMAGE_PIN"
 echo "  Do not run build-and-copy.sh --exp-b12x afterwards: it re-pulls Eugr's 'latest' over this tag."
 echo "Installed into $EUGR_DIR:"
 echo "  mods/$MOD/"
+echo "  mods/$FST_MOD/"
 for r in "${RECIPES[@]}"; do echo "  recipes/$r"; done
 echo
 echo "Run it from this folder (settings in serve.sh):"

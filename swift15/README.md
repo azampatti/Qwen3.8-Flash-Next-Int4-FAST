@@ -51,7 +51,8 @@ The recipes serve the model's stock chat template, so the default effort is **xh
 to make medium the default.
 
 The recipes also set a server-default `presence_penalty` of 0.5 against repeated loops in thinking blocks; a request
-that sends its own value keeps it.
+that sends its own value keeps it. They default `temperature` to 0.6 as well, and the two-node recipe loads with
+fastsafetensors through the shared `fst-ep-local` mod (setup.sh installs it from `../fst-ep-local`).
 
 ## Results
 
