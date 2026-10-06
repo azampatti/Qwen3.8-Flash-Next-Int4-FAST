@@ -67,6 +67,8 @@ its own disk (about 35 s instead of about 4 minutes, and no cross-node broadcast
 The mod also fixes a speculative-decoding bug that hit parallel sessions: with 3, 5, 6 or 7 requests running (any count
 that is not 1, 2, 4, 8 or 16) the MTP drafter replayed a padded CUDA graph whose spare rows read stale request ids, and one
 request would then draft at 1 token per step for the rest of its turn. The QSA metadata builder now clears those rows every step.
+To check whether a running server has this bug: `sh tools/mtp_drafter_check.sh [http://host:8000]` (needs only sh and
+python3; about a minute on an idle server; prints PASS or FAIL with the tokens per step of every parallel stream).
 
 ## How it measures up
 
