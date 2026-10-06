@@ -64,6 +64,10 @@ head, 0.6 decodes 10-20 % faster than the model's 1.0 on real agent traffic. The
 through `fst-ep-local/`, a second mod that `eugr-setup.sh` installs: each node reads only its own half of the experts from
 its own disk (about 35 s instead of about 4 minutes, and no cross-node broadcast).
 
+The mod also fixes a speculative-decoding bug that hit parallel sessions: with 3, 5, 6 or 7 requests running (any count
+that is not 1, 2, 4, 8 or 16) the MTP drafter replayed a padded CUDA graph whose spare rows read stale request ids, and one
+request would then draft at 1 token per step for the rest of its turn. The QSA metadata builder now clears those rows every step.
+
 ## How it measures up
 
 Our own harness, so read it as a relative comparison. Capability is the average of 6 runs for this model (the original:

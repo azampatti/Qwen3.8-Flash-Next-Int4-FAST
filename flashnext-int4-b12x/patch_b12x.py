@@ -19,6 +19,10 @@ never modified -- a new container starts clean and the mod re-applies this.
                  that corrupts GDN state on the prefix-cache path), same one-liners as the qwen38-flash-dgx image.
     penalties    server-default presence/frequency penalty from --override-generation-config (stock vLLM drops both
                  keys, and requests default them to 0.0); a request that sets the field keeps its own value.
+    pad rows     dead MTP drafter under concurrency: the QSA metadata builder clears the whole unused tail of its request-id
+                 buffer every step, so the drafter's padded graph rows (request counts not in {1,2,4,8,16}) never carry a
+                 stale request index (b12x QSA error 128 -> ring commit skipped, NaN-poisoned, 1 token/step for the rest of
+                 the request). Prunning/qwen38_flash_next/mtp_sweep/ROOTCAUSE.md.
 
   usage: patch_b12x.py <mod dir>
 """
@@ -199,6 +203,17 @@ for _proto in ("chat_completion", "completion"):
                         "            frequency_penalty=(self.frequency_penalty if 'frequency_penalty' in self.model_fields_set\n"
                         "                else default_sampling_params.get('frequency_penalty', self.frequency_penalty)),\n"),
          f"request-penalty-default", False)
+
+# 8. drafter pad rows ----------------------------------------------------------------------------------------------------
+# The MTP drafter's step-0 graphs exist only for {1,2,4,8,16} requests; a decode step with another count replays a padded graph whose
+# extra rows read the QSA builder's request-id buffer past the step's tokens. Stock code cleared that tail only when the step itself
+# was padded, so the rows kept the previous prefill step's request index; b12x's QSA validation then charged that request (error 128),
+# skipped its ring commit and NaN-poisoned it: 1 token/step until the request ended (parallel agents hit it constantly).
+_qsa = next((p for p in (f"{MODEL_DIR}/nvidia/qsa.py", f"{MODEL_DIR}/qsa.py") if os.path.isfile(p)), f"{MODEL_DIR}/nvidia/qsa.py")
+edit(_qsa,
+     lambda s: once(s, "        if num_mapped_tokens < cm.num_actual_tokens:\n            request_ids[num_mapped_tokens:].fill_(-1)\n",
+                    f"        self._request_ids[num_mapped_tokens:].fill_(-1)  # {MARK}:drafter-pad-rows (clear the whole unused tail)\n"),
+     "drafter-pad-rows", False)
 
 print("patched: " + ", ".join(done) + ("" if not warn else " | WARNING (optional, skipped): " + "; ".join(warn)))
 if fatal:
