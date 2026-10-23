@@ -61,7 +61,7 @@ if [ "$BACKEND" = b12x ]; then
   RECIPE="$EUGR_DIR/recipes/$B12X_RECIPE"
   eugr_present && [ -f "$RECIPE" ] && [ -d "$EUGR_DIR/mods/flashnext-int4-b12x" ] \
     || { echo "The b12x recipe is not installed in $EUGR_DIR -- run ./setup.sh (or ./eugr-setup.sh), or BACKEND=classic ./serve.sh" >&2; exit 1; }
-  docker image inspect "$B12X_IMAGE" >/dev/null 2>&1 || { echo "Image $B12X_IMAGE not found -- run ./setup.sh" >&2; exit 1; }
+  docker image inspect "$B12X_IMAGE" >/dev/null 2>&1 || { echo "No b12x image found (${B12X_IMAGE:-no vllm-node-b12x-YYYYMMDD tag}) -- run ./setup.sh or ./eugr-setup.sh" >&2; exit 1; }
   [ "$DOWNLOAD_MODE" = cache ] || { echo "The b12x recipe reads the model from the Hugging Face cache (DOWNLOAD_MODE=cache)" >&2; exit 1; }
   B12X=(--solo -t "$B12X_IMAGE" --port "$PORT" --max-model-len "$CTX" --name "$CONTAINER"); [ "$DETACH" = 1 ] && B12X+=(-d)
   echo "Serving $MODEL_REPO with Eugr's b12x stack ($B12X_IMAGE, recipe $B12X_RECIPE) -- ${CTX} ctx, KV $KV_BYTES on port $PORT"

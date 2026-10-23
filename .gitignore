@@ -3,3 +3,4 @@ __pycache__/
 upstream/
 .backend
 swift15/model/
+.b12x-image

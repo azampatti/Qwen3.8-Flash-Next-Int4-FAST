@@ -8,7 +8,7 @@
 #
 # NEEDS (nothing else to copy or build):
 #   on BOTH nodes:
-#   - the vllm-node-b12x image, identical on both (eugr's build-and-copy.sh copies it to the worker)
+#   - the vllm-node-b12x-<build date> image (eugr-setup.sh pulls Eugr's latest b12x build and tags it), identical on both (eugr's build-and-copy.sh copies it to the worker)
 #   - the base model in the Hugging Face cache (~/Qwen3.8-Flash-Next-Int4-FAST/setup.sh), then
 #     ~/Qwen3.8-Flash-Next-Int4-FAST/swift15/setup.sh, which adds the Swift1.5 files and installs this recipe + its mod
 # The mod (mods/flashnext-swift15-b12x) checks the variant, builds the served-model view and the slim MTP draft folder inside
@@ -22,7 +22,8 @@ name: Qwen3.8-Flash-Next-Swift1.5 (b12x, 2 nodes)
 description: Qwen3.8-Flash-Next-Swift1.5 (azampatti), the INT4-AutoRound base with Swift1.5 attention + V11 shared expert, top-k 5, on two DGX Spark / GB10 with the b12x stack and RoCE all-reduce, TP 2 + expert parallel
 
 model: azampatti/Qwen3.8-Flash-Next-125B-A5B-INT4-AutoRound
-container: vllm-node-b12x
+# eugr-setup.sh rewrites this line to the tag of the image it pulled: vllm-node-b12x-<image build date, YYYYMMDD>
+container: vllm-node-b12x-20261015
 
 build_args:
   - --exp-b12x
@@ -45,11 +46,11 @@ defaults:
   block_size: 1632                   # MTP 5: the QSA ring is 12 rows, which must divide the page (1632 = 12 x 136 = 8 x 204)
   kv_cache_bytes: 20g
   gpu_memory_utilization: 0.01
-  num_speculative_tokens: 5          # needs the mod's mtp-cap patch (b12x caps 4). Cluster sweep 2026-09-27 (greedy, batched 8192), run.py tok/s: 3 = 96.8, 4 = 103.9, 5 = 109.2, 6 = 112.7, 7 = 110.8; 4 short concurrent requests: 159 at 4-5 vs 143 at 6 -> 5 balances one user and several
+  num_speculative_tokens: 5          # older b12x builds cap this at 4 (the mod's mtp-cap patch lifts it; the 2026-10-15 build has no cap). Cluster sweep 2026-09-27 (greedy, batched 8192), run.py tok/s: 3 = 96.8, 4 = 103.9, 5 = 109.2, 6 = 112.7, 7 = 110.8; 4 short concurrent requests: 159 at 4-5 vs 143 at 6 -> 5 balances one user and several
   load_format: fastsafetensors      # per-node + expert-filtered via mods/fst-ep-local: ~35 s weight load vs ~235 s safetensors
   chat_template: chat_template.jinja   # stock template: xhigh by default (Swift1.5's strength); medium_chat_template.jinja = medium
   temperature: 0.6                   # server default (requests that set it keep theirs): +10-20 % MTP decode vs 1.0 on real opencode traffic
-  presence_penalty: 0.5              # server default (requests that set it keep theirs); damps repeated loops in thinking blocks
+  presence_penalty: 0.1              # server default (requests that set it keep theirs); damps repeated loops in thinking blocks
 
 env:
   HF_HUB_OFFLINE: "1"

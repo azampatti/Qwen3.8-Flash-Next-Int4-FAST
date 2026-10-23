@@ -15,8 +15,8 @@ about 70-75 tokens/s. 125B parameters in total, **4.8B active per token** (the o
   git clone https://github.com/eugr/spark-vllm-docker ~/spark-vllm-docker
   ```
 
-  With it, setup pulls Eugr's b12x image (pinned to the build this model was validated on) and skips building
-  ours: about 75 tok/s instead of 70, and no 20-40 minute compile. Without it, everything still works on our own image.
+  With it, setup pulls Eugr's latest b12x image and skips building ours: about 75 tok/s instead of 70, and no 20-40
+  minute compile. Without it, everything still works on our own image.
 
 ## Get it running
 
@@ -55,7 +55,7 @@ request), `SEQS` (requests at once) and `KV_BYTES` (KV cache size; 20g holds ~64
 stack the speculative-decoding settings come from the recipe, not from `serve.sh`. For **two nodes**, `setup.sh`
 also installs a cluster recipe into Eugr's repo and prints the command to run it.
 
-The b12x recipes set a server-default `presence_penalty` of 0.5 (`presence_penalty:` in the recipe) to damp repeated
+The b12x recipes set a server-default `presence_penalty` of 0.1 (`presence_penalty:` in the recipe) to damp repeated
 loops in thinking blocks; a request that sends its own `presence_penalty` keeps it. The mod patches vLLM so this default
 applies at all: stock vLLM ignores `presence_penalty` in `--override-generation-config`.
 
@@ -69,6 +69,14 @@ that is not 1, 2, 4, 8 or 16) the MTP drafter replayed a padded CUDA graph whose
 request would then draft at 1 token per step for the rest of its turn. The QSA metadata builder now clears those rows every step.
 To check whether a running server has this bug: `sh tools/mtp_drafter_check.sh [http://host:8000]` (needs only sh and
 python3; about a minute on an idle server; prints PASS or FAIL with the tokens per step of every parallel stream).
+Eugr's 2026-10-15 build no longer has the bug, so the mod leaves it alone there.
+
+**Which b12x image.** `eugr-setup.sh` (run by `setup.sh`) pulls Eugr's latest b12x build, the one his
+`build-and-copy.sh --exp-b12x` pulls, and tags it `vllm-node-b12x-<build date>` (for example `vllm-node-b12x-20261015`).
+It then sets the `container:` line of every recipe of ours in Eugr's `recipes/` to that tag, so the recipes always run
+the image that was pulled. Re-run `./eugr-setup.sh` to move to a newer build; the older tag stays until you delete it.
+Validated: the 2026-10-15 build (vLLM 0.1.dev21830) on one node. On the two-node cluster, run `eugr-setup.sh` on both
+nodes so they share the tag.
 
 ## How it measures up
 

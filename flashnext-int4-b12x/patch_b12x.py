@@ -32,7 +32,7 @@ MOD = sys.argv[1]
 SP = "/usr/local/lib/python3.12/dist-packages"
 V = f"{SP}/vllm"
 MARK = "flashnext-int4-b12x"
-done, warn, fatal = [], [], []
+done, warn, fatal, unneeded = [], [], [], []
 
 
 def edit(path, fn, label, required):
@@ -88,11 +88,11 @@ def _flashnext_index_filter():
     _orig = DefaultModelLoader._safetensors_weights_iterator
     _maps = {{}}
 
-    def _iterate(self, hf_weights_files, source):
+    def _iterate(self, hf_weights_files, source, **kwargs):  # newer loaders pass indexed_tensor_files=...
         files = list(hf_weights_files)
         folders = {{_Path(f).parent for f in files}}
         if len(folders) != 1 or not str(next(iter(folders))).startswith("/workspace/flashnext/"):
-            yield from _orig(self, files, source)
+            yield from _orig(self, files, source, **kwargs)
             return
         folder = next(iter(folders))
         if folder not in _maps:
@@ -100,7 +100,7 @@ def _flashnext_index_filter():
         weight_map = _maps[folder]
         for f in files:
             here = _Path(f).name
-            for name, tensor in _orig(self, [f], source):
+            for name, tensor in _orig(self, [f], source, **kwargs):
                 if weight_map.get(name) == here:
                     yield name, tensor
 
@@ -172,9 +172,16 @@ def _mtp_cap(s):
     if int(m.group(1)) >= 7:
         return s + f"\n# {MARK}:mtp-cap (this image already allows {m.group(1)})\n"
     return s.replace(m.group(0), f"_QSA_MAX_SPECULATIVE_TOKENS = 7  # {MARK}:mtp-cap (was {m.group(1)})")
+# Images whose QSA lives in b12x_qsa.py (eugr's 2026-10-15 build, vLLM 0.1.dev21830) have no such cap: nothing to patch.
+B12X_QSA = os.path.isfile(f"{MODEL_DIR}/b12x_qsa.py")
 _qsa = next((p for p in (f"{MODEL_DIR}/nvidia/qsa.py", f"{MODEL_DIR}/qsa.py")
-             if os.path.isfile(p) and "_QSA_MAX_SPECULATIVE_TOKENS" in open(p).read()), f"{MODEL_DIR}/nvidia/qsa.py")
-edit(_qsa, _mtp_cap, "mtp-cap", False)
+             if os.path.isfile(p) and "_QSA_MAX_SPECULATIVE_TOKENS" in open(p).read()), None)
+if _qsa:
+    edit(_qsa, _mtp_cap, "mtp-cap", False)
+elif B12X_QSA:
+    unneeded.append("mtp-cap")
+else:
+    warn.append(f"mtp-cap: no QSA file with _QSA_MAX_SPECULATIVE_TOKENS under {MODEL_DIR}")
 
 # 5. GDN fixes ---------------------------------------------------------------------------------------------------------
 fla = f"{V}/third_party/flash_linear_attention/ops"
@@ -209,12 +216,18 @@ for _proto in ("chat_completion", "completion"):
 # extra rows read the QSA builder's request-id buffer past the step's tokens. Stock code cleared that tail only when the step itself
 # was padded, so the rows kept the previous prefill step's request index; b12x's QSA validation then charged that request (error 128),
 # skipped its ring commit and NaN-poisoned it: 1 token/step until the request ended (parallel agents hit it constantly).
+# The 2026-10-15 build (b12x_qsa.py layout) maps tokens to requests in a new kernel; the deterministic repro (prefill_probe
+# phases 7/8/11/12) and tools/mtp_drafter_check.sh find no dead drafter on it, so it is left as shipped there.
 _qsa = next((p for p in (f"{MODEL_DIR}/nvidia/qsa.py", f"{MODEL_DIR}/qsa.py") if os.path.isfile(p)), f"{MODEL_DIR}/nvidia/qsa.py")
-edit(_qsa,
-     lambda s: once(s, "        if num_mapped_tokens < cm.num_actual_tokens:\n            request_ids[num_mapped_tokens:].fill_(-1)\n",
-                    f"        self._request_ids[num_mapped_tokens:].fill_(-1)  # {MARK}:drafter-pad-rows (clear the whole unused tail)\n"),
-     "drafter-pad-rows", False)
+if B12X_QSA:
+    unneeded.append("drafter-pad-rows")
+else:
+    edit(_qsa,
+         lambda s: once(s, "        if num_mapped_tokens < cm.num_actual_tokens:\n            request_ids[num_mapped_tokens:].fill_(-1)\n",
+                        f"        self._request_ids[num_mapped_tokens:].fill_(-1)  # {MARK}:drafter-pad-rows (clear the whole unused tail)\n"),
+         "drafter-pad-rows", False)
 
-print("patched: " + ", ".join(done) + ("" if not warn else " | WARNING (optional, skipped): " + "; ".join(warn)))
+print("patched: " + ", ".join(done) + ("" if not unneeded else " | not needed on this image: " + ", ".join(unneeded))
+      + ("" if not warn else " | WARNING (optional, skipped): " + "; ".join(warn)))
 if fatal:
     sys.exit("FATAL required patch failed: " + "; ".join(fatal))

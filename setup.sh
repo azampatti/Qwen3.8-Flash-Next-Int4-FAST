@@ -19,7 +19,7 @@ free_gb=$(df -PBG "$MODELS_DIR" 2>/dev/null | awk 'NR==2{gsub("G","",$4);print $
 echo "  ok: docker, GPU, $(nvidia-smi --query-gpu=name --format=csv,noheader 2>/dev/null | head -1)"
 mkdir -p "$MODELS_DIR"
 
-# Eugr's spark-vllm-docker checked out (EUGR_DIR, default ~/spark-vllm-docker) = serve with his b12x stack: pull the pinned b12x image instead
+# Eugr's spark-vllm-docker checked out (EUGR_DIR, default ~/spark-vllm-docker) = serve with his b12x stack: pull his latest b12x image instead
 # of building ours. Anything short of a successful pull (repo missing, pull failed) falls back to building our image.
 step "Looking for Eugr's spark-vllm-docker (b12x stack)"
 USE_B12X=0
@@ -33,11 +33,12 @@ case "$BACKEND" in
       [ "$BACKEND" = b12x ] && die "the b12x recipe reads the model from the Hugging Face cache; it needs DOWNLOAD_MODE=cache"
       echo "  found at $EUGR_DIR, but the b12x recipe needs DOWNLOAD_MODE=cache (this is '$DOWNLOAD_MODE'): building our own image"
     elif { echo "  found at $EUGR_DIR"; ./eugr-setup.sh --pull-only 2>&1 | sed 's/^/  /'; }; then
+      B12X_IMAGE="$(cat "$B12X_IMAGE_FILE")"   # the vllm-node-b12x-YYYYMMDD tag eugr-setup.sh just recorded
       USE_B12X=1; IMAGE="$B12X_IMAGE"
       echo "  serving with $IMAGE: skipping our own image build"
     else
-      [ "$BACKEND" = b12x ] && die "could not pull the pinned b12x image $B12X_IMAGE_PIN"
-      echo "  WARNING: could not pull the pinned b12x image -- building our own image instead"
+      [ "$BACKEND" = b12x ] && die "could not pull the b12x image $B12X_SOURCE"
+      echo "  WARNING: could not pull the b12x image $B12X_SOURCE -- building our own image instead"
     fi ;;
   *) die "BACKEND must be auto, b12x or classic (got '$BACKEND')" ;;
 esac

@@ -19,7 +19,7 @@ already have.
 ```bash
 git clone https://github.com/eugr/spark-vllm-docker ~/spark-vllm-docker
 git clone https://github.com/azampatti/Qwen3.8-Flash-Next-Int4-FAST ~/Qwen3.8-Flash-Next-Int4-FAST
-~/Qwen3.8-Flash-Next-Int4-FAST/setup.sh          # downloads the base model and pulls the pinned vllm-node-b12x image
+~/Qwen3.8-Flash-Next-Int4-FAST/setup.sh          # downloads the base model and pulls Eugr's latest b12x image (vllm-node-b12x-<build date>)
 ```
 
 **Then this variant (optional, on top of the base):**

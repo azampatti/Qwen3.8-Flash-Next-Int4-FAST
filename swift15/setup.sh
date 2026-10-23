@@ -3,7 +3,7 @@
 #
 # PREREQUISITE: the base model azampatti/Qwen3.8-Flash-Next-125B-A5B-INT4-AutoRound in the Hugging Face cache, i.e.
 #   git clone https://github.com/azampatti/Qwen3.8-Flash-Next-Int4-FAST ~/Qwen3.8-Flash-Next-Int4-FAST && ~/Qwen3.8-Flash-Next-Int4-FAST/setup.sh
-# and eugr's spark-vllm-docker with the vllm-node-b12x image (the base setup pulls the pinned image when eugr's repo is there).
+# and eugr's spark-vllm-docker with a vllm-node-b12x-YYYYMMDD image (the base setup pulls Eugr's latest b12x build when eugr's repo is there).
 #
 # What it does (idempotent, ~3 GB of new data, no GPU, no running containers touched):
 #   1. gets the three Swift1.5 files: model/ next to this script if present, else downloads them from the Hugging Face repo
@@ -20,7 +20,10 @@ set -euo pipefail
 cd "$(dirname "$0")"; HERE="$(pwd)"
 FORCE=0; [ "${1:-}" = "--force" ] && FORCE=1
 HF_HOME="${HF_HOME:-$HOME/.cache/huggingface}"; HUB="$HF_HOME/hub"; EUGR_DIR="${EUGR_DIR:-$HOME/spark-vllm-docker}"
-B12X_IMAGE="${B12X_IMAGE:-vllm-node-b12x}"; OVERLAY_REPO="${OVERLAY_REPO:-azampatti/Qwen3.8-Flash-Next-Swift1.5}"
+# the b12x image: the vllm-node-b12x-YYYYMMDD tag the base model's eugr-setup.sh recorded, else the newest such local image
+[ -n "${B12X_IMAGE:-}" ] || B12X_IMAGE="$(cat ../.b12x-image 2>/dev/null || true)"
+[ -n "$B12X_IMAGE" ] || B12X_IMAGE="$(docker images --format '{{.Repository}}' 2>/dev/null | grep -E '^vllm-node-b12x-[0-9]{8}$' | sort | tail -1 || true)"
+OVERLAY_REPO="${OVERLAY_REPO:-azampatti/Qwen3.8-Flash-Next-Swift1.5}"
 read -r VERSION BASE_REPO BASE_REV < <(python3 -c "import json;m=json.load(open('MANIFEST.json'));print(m['version'],m['base_model']['repo'],m['base_model']['revision'])")
 BASE_DIR="$HUB/models--${BASE_REPO//\//--}"; BASE_SNAP="$BASE_DIR/snapshots/$BASE_REV"
 NAME=models--local--Qwen3.8-Flash-Next-Swift1.5; OUT="$HUB/$NAME"; SNAP="$OUT/snapshots/$VERSION"
@@ -99,13 +102,16 @@ PY
 if [ -d "$EUGR_DIR/recipes" ] && [ -d "$EUGR_DIR/mods" ]; then
   rm -rf "$EUGR_DIR/mods/$MOD"; cp -r "eugr/$MOD" "$EUGR_DIR/mods/$MOD"
   rm -rf "$EUGR_DIR/mods/fst-ep-local"; cp -r "../fst-ep-local" "$EUGR_DIR/mods/fst-ep-local"   # shared with the base recipes (cluster loader)
-  for r in "${RECIPES[@]}"; do cp "eugr/$r" "$EUGR_DIR/recipes/"; done
+  for r in "${RECIPES[@]}"; do
+    cp "eugr/$r" "$EUGR_DIR/recipes/"
+    if [ -n "$B12X_IMAGE" ]; then sed -i "s/^container: .*/container: $B12X_IMAGE/" "$EUGR_DIR/recipes/$r"; fi
+  done
   say "installed mods/$MOD + mods/fst-ep-local + ${RECIPES[*]} into $EUGR_DIR"
 else
   say "eugr's spark-vllm-docker not found at $EUGR_DIR -- copy eugr/$MOD into its mods/ and eugr/*.yaml into its recipes/ yourself"
 fi
-command -v docker >/dev/null && ! docker image inspect "$B12X_IMAGE" >/dev/null 2>&1 && \
-  say "WARNING: no '$B12X_IMAGE' image on this host -- run the base model's setup.sh (or eugr-setup.sh --pull-only) to get the pinned b12x image"
+command -v docker >/dev/null && ! docker image inspect "${B12X_IMAGE:-none}" >/dev/null 2>&1 && \
+  say "WARNING: no vllm-node-b12x-YYYYMMDD image on this host -- run the base model's setup.sh (or eugr-setup.sh) to pull Eugr's b12x image, then this setup again"
 
 # colours only on a terminal (NO_COLOR=1 turns them off): bright white = titles, pink = commands to run
 if [ -t 1 ] && [ -z "${NO_COLOR:-}" ]; then W=$'\e[1;97m'; K=$'\e[38;5;213m'; R=$'\e[0m'; else W=; K=; R=; fi
