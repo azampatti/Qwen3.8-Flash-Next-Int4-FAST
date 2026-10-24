@@ -15,6 +15,7 @@ for a in "$@"; do
 done
 set --                                   # config.env sources serve.sh: do not hand it our arguments
 cd "$(dirname "$0")"; source ./config.env
+[ "$ORCA" = 1 ] && orca_disclaimer        # every --orca run shows the variant's disclaimer (orca/README.md) first
 
 step(){ printf '\n\033[1m==> %s\033[0m\n' "$*"; }
 die(){ echo "ERROR: $*" >&2; exit 1; }

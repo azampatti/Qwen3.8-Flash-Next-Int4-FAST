@@ -41,6 +41,7 @@ for f in "$MOD" "$FST_MOD" "${RECIPES[@]}"; do
 done
 
 if [ "$ORCA" = 1 ]; then
+  orca_disclaimer                          # shown on every --orca run (once when setup.sh --orca calls this)
   read -r ORCA_REPO ORCA_VERSION ORCA_NAME < <(python3 -c "import json;m=json.load(open('orca/MANIFEST.json'));print(m['served_repo'],m['version'],m['served_name'])")
   [ "$(cat "$HF_HOME/hub/$ORCA_REPO/refs/main" 2>/dev/null)" = "$ORCA_VERSION" ] || {
     echo "The Orca variant is not built on this node ($HF_HOME/hub/$ORCA_REPO) -- run ./setup.sh --orca (it builds it, then runs this)." >&2; exit 1; }
