@@ -31,6 +31,11 @@ cd Qwen3.8-Flash-Next-Int4-FAST
 `setup.sh` is safe to re-run: it skips what is already done and checks the image and the cached weights
 every time. To update, `git pull && ./setup.sh`. Unchanged files are reused, so this usually takes seconds.
 
+**Optional: the Orca-abliterated variant** (refusals removed — read [orca/README.md](orca/README.md) first).
+`./setup.sh --orca` does the normal setup, then builds the variant on top of the base model (about a minute, ~7.5 GB, no
+download) and installs its solo and cluster recipes. Serve it with
+`B12X_RECIPE=qwen3.8-flash-next-int4-b12x-orca-solo.yaml ./serve.sh`, or with the `-orca` recipes in `~/spark-vllm-docker`.
+
 ## Using it
 
 It speaks the OpenAI API, so any client works:

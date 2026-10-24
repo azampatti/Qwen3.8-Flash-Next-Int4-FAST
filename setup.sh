@@ -2,8 +2,18 @@
 # One-time setup: get the serving image and download the weights. Re-runnable; it skips whatever is already done.
 #   ./setup.sh
 #   BACKEND=classic ./setup.sh     build our own image even when Eugr's spark-vllm-docker is there (BACKEND=b12x: insist on it)
+#   ./setup.sh --orca              also build the Orca-abliterated variant (orca/README.md) on top of the base model and install
+#                                  its recipes (eugr-setup.sh --orca). Needs Eugr's b12x stack. Run it on BOTH nodes for the cluster.
 # Everything happens inside Docker -- the only things you need on the host are docker and the NVIDIA container toolkit.
 set -euo pipefail
+ORCA=0
+for a in "$@"; do
+  case "$a" in
+    --orca) ORCA=1 ;;
+    *) echo "usage: ./setup.sh [--orca]" >&2; exit 1 ;;
+  esac
+done
+set --                                   # config.env sources serve.sh: do not hand it our arguments
 cd "$(dirname "$0")"; source ./config.env
 
 step(){ printf '\n\033[1m==> %s\033[0m\n' "$*"; }
@@ -42,6 +52,7 @@ case "$BACKEND" in
     fi ;;
   *) die "BACKEND must be auto, b12x or classic (got '$BACKEND')" ;;
 esac
+[ "$ORCA" = 1 ] && [ "$USE_B12X" != 1 ] && die "--orca needs Eugr's b12x stack (the variant's runtime projection lives in the b12x mod) -- see above why it is not in use"
 
 if [ "$USE_B12X" = 1 ]; then
   # The mod (flashnext-int4-b12x) patches vLLM for this checkpoint at every launch and checks the model there, so all
@@ -179,10 +190,27 @@ fi
 
 if [ "$USE_B12X" = 1 ]; then
   # The mod builds the draft folder and applies the draft-logit scaling inside the container, so neither step is needed here.
+  if [ "$ORCA" = 1 ]; then
+    # Orca-abliterated variant: three bf16 files of the base rewritten (embeddings, ple.value_proj, MTP head), everything else a
+    # symlink into the base snapshot; built inside the b12x image (torch), ~7.5 GB new, about a minute. See orca/README.md.
+    read -r ORCA_REPO ORCA_VERSION < <(python3 -c "import json;m=json.load(open('orca/MANIFEST.json'));print(m['served_repo'],m['version'])")
+    step "Building the Orca-abliterated variant ($ORCA_REPO, $ORCA_VERSION)"
+    if [ "$(cat "$HF_HOME/hub/$ORCA_REPO/refs/main" 2>/dev/null)" = "$ORCA_VERSION" ] \
+       && [ -e "$HF_HOME/hub/$ORCA_REPO/snapshots/$ORCA_VERSION/orca_direction.safetensors" ] \
+       && [ "$(readlink -f "$HF_HOME/hub/$ORCA_REPO/snapshots/$ORCA_VERSION/config.json")" = "$(readlink -f "$MODEL_DIR/config.json")" ]; then
+      echo "  already built on this base snapshot: $HF_HOME/hub/$ORCA_REPO"
+    else
+      docker run --rm --user "$(id -u):$(id -g)" -e HOME=/tmp -v "$HF_HOME/hub":"$HF_HOME/hub" -v "$PWD/orca":/orca:ro \
+        --entrypoint python3 "$IMAGE" /orca/build_orca.py "$HF_HOME/hub" "$MODEL_DIR" /orca | sed 's/^/  /' \
+        || die "could not build the Orca variant (see above)"
+    fi
+  fi
   step "Installing the b12x recipes + mod into $EUGR_DIR"
-  ./eugr-setup.sh | sed 's/^/  /'
+  ./eugr-setup.sh $([ "$ORCA" = 1 ] && echo --orca) | sed 's/^/  /'
   printf 'SETUP_BACKEND=b12x\nSETUP_EUGR_DIR=%q\n' "$EUGR_DIR" > "$BACKEND_FILE"
-  printf '\n\033[1mSetup complete (b12x).\033[0m  Start the server with:  ./serve.sh   (it runs the single-node recipe above)\n\n'
+  printf '\n\033[1mSetup complete (b12x).\033[0m  Start the server with:  ./serve.sh   (it runs the single-node recipe above)\n'
+  [ "$ORCA" = 1 ] && printf '  Orca variant:  B12X_RECIPE=qwen3.8-flash-next-int4-b12x-orca-solo.yaml ./serve.sh   (cluster: the -orca recipe in %s)\n' "$EUGR_DIR"
+  printf '\n'
 else
   step "Creating the speculative-decoding draft directory (symlinks, no extra disk)"
   # The draft folder is symlinks INTO the model folder, and a hub update lands in a new snapshot folder, so links

@@ -19,6 +19,8 @@ never modified -- a new container starts clean and the mod re-applies this.
                  that corrupts GDN state on the prefix-cache path), same one-liners as the qwen38-flash-dgx image.
     penalties    server-default presence/frequency penalty from --override-generation-config (stock vLLM drops both
                  keys, and requests default them to 0.0); a request that sets the field keeps its own value.
+    orca-proj    ONLY for the Orca variant (ORCA_DIRECTION set by run.sh from variant.env): projects OrcaRouter's refusal
+                 direction out of every decoder layer's attention and MLP block output (REQUIRED there). See orca/README.md.
     pad rows     dead MTP drafter under concurrency: the QSA metadata builder clears the whole unused tail of its request-id
                  buffer every step, so the drafter's padded graph rows (request counts not in {1,2,4,8,16}) never carry a
                  stale request index (b12x QSA error 128 -> ring commit skipped, NaN-poisoned, 1 token/step for the rest of
@@ -226,6 +228,62 @@ else:
          lambda s: once(s, "        if num_mapped_tokens < cm.num_actual_tokens:\n            request_ids[num_mapped_tokens:].fill_(-1)\n",
                         f"        self._request_ids[num_mapped_tokens:].fill_(-1)  # {MARK}:drafter-pad-rows (clear the whole unused tail)\n"),
          "drafter-pad-rows", False)
+
+# 9. orca-proj (Orca variant only) ------------------------------------------------------------------------------------
+# OrcaRouter's abliteration (orcarouter/Qwen3.8-Flash-Next-Uncensored, lambda = 1) is W' = W - r (r^T W) on every residual
+# writer. The variant's bf16 writers (embeddings, ple.value_proj, the MTP head) carry it in their weights; for the trunk it is
+# applied here at runtime to the two block outputs of every decoder layer -- attn_out (o_proj / GDN out_proj) and mlp_out
+# (routed experts + shared expert, already summed) -- which is the same map and keeps the int4 / fp8 weights byte-identical
+# (re-rounding an int4 weight that already sits on the grid would erase a 2 % edit). P is idempotent, so a layer that also
+# carries the fold in its weights is unaffected by the second pass.
+ORCA_DIRECTION = os.environ.get("ORCA_DIRECTION", "")
+if ORCA_DIRECTION:
+    ORCA_FN = f'''
+
+# --- {MARK}:orca-proj ---
+def _orca_direction():
+    from safetensors.torch import load_file as _load
+    _r = _load({ORCA_DIRECTION!r})["orca_refusal_direction"].to(torch.float32)
+    return (_r / _r.norm()).to(torch.get_default_device())
+
+
+def _orca_project(x, r):
+    c = x.float() @ r
+    return x - (c.unsqueeze(-1) * r).to(x.dtype)
+'''
+
+    def _orca(s):
+        s = once(s, '''        self.mlp_hyper_connection = GatedResidual(
+            hc_config,
+            workspace=workspace,
+            prefix=maybe_prefix(prefix, "mlp_hyper_connection"),
+        )
+''', '''        self.mlp_hyper_connection = GatedResidual(
+            hc_config,
+            workspace=workspace,
+            prefix=maybe_prefix(prefix, "mlp_hyper_connection"),
+        )
+        self.register_buffer("_orca_r", _orca_direction(), persistent=False)  # %s:orca-proj
+''' % MARK)
+        if s is None:
+            return None
+        s = once(s, '''        if output_indices is not None:
+            hidden_states = hidden_states[output_indices]
+            attn_out = attn_out[output_indices]
+''', '''        attn_out = _orca_project(attn_out, self._orca_r)  # %s:orca-proj
+        if output_indices is not None:
+            hidden_states = hidden_states[output_indices]
+            attn_out = attn_out[output_indices]
+''' % MARK)
+        if s is None:
+            return None
+        s = once(s, '''        mlp_out = self.mlp(block_input)
+        return hidden_states, mlp_out, injection
+''', '''        mlp_out = _orca_project(self.mlp(block_input), self._orca_r)  # %s:orca-proj
+        return hidden_states, mlp_out, injection
+''' % MARK)
+        return None if s is None else s + ORCA_FN
+    edit(f"{MODEL_DIR}/model.py", _orca, "orca-proj", True)
 
 print("patched: " + ", ".join(done) + ("" if not unneeded else " | not needed on this image: " + ", ".join(unneeded))
       + ("" if not warn else " | WARNING (optional, skipped): " + "; ".join(warn)))

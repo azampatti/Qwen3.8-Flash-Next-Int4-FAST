@@ -1,0 +1,23 @@
+{
+ "name": "Qwen3.8-Flash-Next INT4-AutoRound top-k 5, Orca-abliterated (azampatti)",
+ "version": "orca-v1",
+ "served_repo": "models--local--Qwen3.8-Flash-Next-125B-A5B-INT4-AutoRound-Orca",
+ "served_name": "azampatti/Qwen3.8-Flash-Next-125B-A5B-INT4-AutoRound-Orca",
+ "base_model": {
+  "repo": "azampatti/Qwen3.8-Flash-Next-125B-A5B-INT4-AutoRound",
+  "revisions": ["b880593bcec1877c57d8e62415b47858222f21fd", "1464274120d36a4d8fcaa934552334a7d83ce0fd"]
+ },
+ "direction": {
+  "file": "orca_direction.safetensors",
+  "sha256": "178edb39a5fcad95084586a90ea9b75df73cac6886d27fca2fe022b9cb957b68",
+  "source": "orcarouter/Qwen3.8-Flash-Next-Uncensored (Apache-2.0) vs Qwen/Qwen3.8-Flash-Next BF16: one unit direction r (2560), lambda 1.000, rank-1 on every residual writer"
+ },
+ "inputs": {
+  "model-00003-of-00067.safetensors": {"sha256": "655ee58a6c9cdbb9f3ff8c9b37478dc011f06fbde19f9523747add9c3942c194", "bytes": 1068893912},
+  "model-00062-of-00067.safetensors": {"sha256": "c8af64f29a2132a7115c2f334ffcb8ed55aed0c154ea26616026af31855d153b", "bytes": 1271398552},
+  "model_extra_tensors.safetensors": {"sha256": "f9b93d0f967e6d3b3bccd5a249db35caf8e61a694b78c3cf2d11d255e084965d", "bytes": 5214492152}
+ },
+ "folded": "embed_tokens (row space E' = E - (E r) r^T), layers.1.ple.value_proj and the MTP head's o_proj / shared_expert.down_proj / 512 experts' down_proj (W' = W - r (r^T W)): 516 bf16 tensors, rewritten into the three input files",
+ "runtime": "every trunk layer's attention and MLP block output is projected (x - (x.r) r) by the mod's orca-proj patch: the int4 routed experts, fp8 attention and the healed shared expert stay byte-identical",
+ "unchanged_from_base": "everything else (symlinks into the base snapshot)"
+}

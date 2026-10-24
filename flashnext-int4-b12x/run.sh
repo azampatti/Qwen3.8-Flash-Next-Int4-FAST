@@ -18,8 +18,13 @@ MOD_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO=/root/.cache/huggingface/hub/models--azampatti--Qwen3.8-Flash-Next-125B-A5B-INT4-AutoRound
 OUT=/workspace/flashnext
 die(){ echo "FATAL $(hostname): $*" >&2; exit 1; }
+# A variant copy of this mod (eugr-setup.sh --orca installs mods/flashnext-int4-b12x-orca) carries variant.env, which points
+# REPO at the variant's local HF-cache repo and sets ORCA=1 (the Orca-abliterated build, see orca/ in the repo). Without the
+# file this is the base model, unchanged.
+ORCA=0
+[ -f "$MOD_DIR/variant.env" ] && . "$MOD_DIR/variant.env"
 
-[ -f "$REPO/refs/main" ] || die "model not in the HF cache -- run ./setup.sh in ~/Qwen3.8-Flash-Next-Int4-FAST on this node"
+[ -f "$REPO/refs/main" ] || die "model not in the HF cache ($(basename "$REPO")) -- run ./setup.sh$([ "$ORCA" = 1 ] && echo " --orca") in ~/Qwen3.8-Flash-Next-Int4-FAST on this node"
 REV=$(cat "$REPO/refs/main"); SNAP="$REPO/snapshots/$REV"
 [ -d "$SNAP/ple-table" ] || die "snapshot ${REV:0:8} has no ple-table -- run ./setup.sh in ~/Qwen3.8-Flash-Next-Int4-FAST on this node"
 for f in config.json model.safetensors.index.json model-healed-shared-expert.safetensors model_extra_tensors.safetensors \
@@ -27,6 +32,10 @@ for f in config.json model.safetensors.index.json model-healed-shared-expert.saf
   [ -e "$SNAP/$f" ] || die "snapshot ${REV:0:8} is incomplete: $f is missing (download still running?)"
 done
 python3 -c "import b12x" 2>/dev/null || die "this is not the b12x image (no b12x package) -- the recipe needs vllm-node-b12x"
+if [ "$ORCA" = 1 ]; then
+  [ -f "$SNAP/orca_direction.safetensors" ] || die "Orca variant ${REV} has no orca_direction.safetensors -- re-run ./setup.sh --orca in ~/Qwen3.8-Flash-Next-Int4-FAST on this node"
+  export ORCA_DIRECTION="$SNAP/orca_direction.safetensors"    # patch_b12x.py applies orca-proj only when this is set
+fi
 
 mkdir -p "$OUT"
 VIEWS=$(python3 "$MOD_DIR/build_views.py" "$SNAP" "$OUT") || die "could not build the model folders"
