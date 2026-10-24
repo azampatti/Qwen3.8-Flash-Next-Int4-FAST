@@ -1,8 +1,27 @@
 # Orca-abliterated variant (optional)
 
-> **This variant has its refusal behaviour removed.** It will answer requests the base model refuses, and in agent use it is
-> more willing to follow injected or "authority" instructions (it loses tool-eval-bench TC-58 / TC-59). Use it for research,
-> red-teaming and private work behind your own safeguards; you are responsible for what you do with it.
+## ⚠️ Disclaimer — read before use
+
+This variant has had its safety alignment substantially removed via abliteration (orthogonalizing the refusal direction
+out of the residual stream). As a direct consequence:
+
+- **It will comply with harmful, unethical, offensive, or illegal requests** that the original Qwen3.8-Flash-Next would
+  refuse. It has no meaningful built-in guardrails.
+- It is released **strictly for legitimate research** — interpretability, AI-safety and refusal-mechanism study,
+  red-teaming, robustness evaluation, and controlled experiments.
+- **You assume full responsibility and liability** for how you use it and for everything it generates. Do not deploy it to
+  end users or in production without adding your own safety, moderation, and abuse-prevention layers.
+- Use must comply with the licenses inherited from the base model ([Qwen/Qwen3.8-Flash-Next](https://huggingface.co/Qwen/Qwen3.8-Flash-Next))
+  and from OrcaRouter's release ([orcarouter/Qwen3.8-Flash-Next-Uncensored](https://huggingface.co/orcarouter/Qwen3.8-Flash-Next-Uncensored)),
+  and with all laws and regulations that apply to you.
+- The authors and uploaders **accept no liability** for any misuse or harm. Its outputs do **not** reflect the views of the
+  uploaders, of OrcaRouter, or of Qwen / Alibaba.
+
+**By building or using this variant you acknowledge and accept the above.**
+
+In agent use it is also more willing to follow injected or "authority" instructions: it loses tool-eval-bench TC-58 / TC-59.
+
+## About
 
 The same model as the base (INT4-AutoRound routed experts at top-k 5, healed shared expert, int4 output head, MTP head, n-gram
 table, the b12x serving stack and every setting of its recipes) with the refusal-direction edit of

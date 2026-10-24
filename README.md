@@ -31,10 +31,7 @@ cd Qwen3.8-Flash-Next-Int4-FAST
 `setup.sh` is safe to re-run: it skips what is already done and checks the image and the cached weights
 every time. To update, `git pull && ./setup.sh`. Unchanged files are reused, so this usually takes seconds.
 
-**Optional: the Orca-abliterated variant** (refusals removed — read [orca/README.md](orca/README.md) first).
-`./setup.sh --orca` does the normal setup, then builds the variant on top of the base model (about a minute, ~7.5 GB, no
-download) and installs its solo and cluster recipes. Serve it with
-`B12X_RECIPE=qwen3.8-flash-next-int4-b12x-orca-solo.yaml ./serve.sh`, or with the `-orca` recipes in `~/spark-vllm-docker`.
+**Optional:** an Orca-abliterated variant (refusals removed) — see [the last section](#optional-orca-abliterated-variant) before using it.
 
 ## Using it
 
@@ -124,3 +121,32 @@ What is ours: cutting the routed experts from 10 to 5 and healing the model afte
 - **Out of memory.** Lower `KV_BYTES`.
 - **Docker cannot see the GPU.** Install the NVIDIA container toolkit and restart the docker daemon.
 - **Empty answers.** With thinking on, the text sits in the `reasoning` field until the model finishes thinking.
+
+## Optional: Orca-abliterated variant
+
+```bash
+./setup.sh --orca     # on each node: the normal setup, then builds the variant on top of the base model
+                      # (about a minute, ~7.5 GB, no download) and installs its solo and cluster recipes
+```
+
+Serve it with `B12X_RECIPE=qwen3.8-flash-next-int4-b12x-orca-solo.yaml ./serve.sh`, or with the `-orca` recipes in
+`~/spark-vllm-docker`. What it is and how it measures: [orca/README.md](orca/README.md).
+
+### ⚠️ Disclaimer — read before use
+
+This variant has had its safety alignment substantially removed via abliteration (orthogonalizing the refusal direction
+out of the residual stream). As a direct consequence:
+
+- **It will comply with harmful, unethical, offensive, or illegal requests** that the original Qwen3.8-Flash-Next would
+  refuse. It has no meaningful built-in guardrails.
+- It is released **strictly for legitimate research** — interpretability, AI-safety and refusal-mechanism study,
+  red-teaming, robustness evaluation, and controlled experiments.
+- **You assume full responsibility and liability** for how you use it and for everything it generates. Do not deploy it to
+  end users or in production without adding your own safety, moderation, and abuse-prevention layers.
+- Use must comply with the licenses inherited from the base model ([Qwen/Qwen3.8-Flash-Next](https://huggingface.co/Qwen/Qwen3.8-Flash-Next))
+  and from OrcaRouter's release ([orcarouter/Qwen3.8-Flash-Next-Uncensored](https://huggingface.co/orcarouter/Qwen3.8-Flash-Next-Uncensored)),
+  and with all laws and regulations that apply to you.
+- The authors and uploaders **accept no liability** for any misuse or harm. Its outputs do **not** reflect the views of the
+  uploaders, of OrcaRouter, or of Qwen / Alibaba.
+
+**By building or using this variant you acknowledge and accept the above.**
