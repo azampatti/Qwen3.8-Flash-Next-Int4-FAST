@@ -119,6 +119,10 @@ What is ours: cutting the routed experts from 10 to 5 and healing the model afte
 
 - **Slow to start.** Loading 72 GB takes two to five minutes. Watch it with `docker logs -f qwen38-flash`.
 - **Out of memory.** Lower `KV_BYTES`.
+- **Out of memory a few minutes into the first b12x boot** (the kernel log shows `cicc` / `ptxas` invoking the OOM killer).
+  Eugr's b12x images from 2026-11 no longer ship FlashInfer's precompiled kernels, and recipes older than this fix let the
+  speculative head's BF16 experts pick FlashInfer CUTLASS, which then compiles at boot next to the loaded model. Update
+  and reinstall the recipes: `git pull && ./setup.sh` (the recipes now run the head's experts on Triton).
 - **Docker cannot see the GPU.** Install the NVIDIA container toolkit and restart the docker daemon.
 - **Empty answers.** With thinking on, the text sits in the `reasoning` field until the model finishes thinking.
 

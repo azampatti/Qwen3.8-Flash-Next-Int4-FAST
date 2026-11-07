@@ -45,6 +45,9 @@ defaults:
   kv_cache_bytes: 20g
   gpu_memory_utilization: 0.01
   num_speculative_tokens: 5          # older b12x builds cap this at 4 (the mod's mtp-cap patch lifts it; the 2026-10-15 build has no cap). 2026-09-27 sweep, run.py tok/s: 3 = 71.2, 4 = 76.0, 5-7 = 79.2 (8 refused by b12x)
+  draft_moe_backend: triton           # the MTP layer is BF16 (unquantized); without this the vLLM picks FlashInfer CUTLASS
+                                     # for it, which images without FlashInfer's precompiled kernels (Eugr's 2026-11-02 build)
+                                     # compile at boot: ~10 parallel nvcc jobs next to the loaded model ran a Spark out of memory
   load_format: fastsafetensors
   chat_template: chat_template.jinja   # stock template: xhigh by default (Swift1.5's strength); medium_chat_template.jinja = medium
   temperature: 0.6                   # server default (requests that set it keep theirs): +10-20 % MTP decode vs 1.0 on real opencode traffic
@@ -101,4 +104,4 @@ command: |
     --reasoning-parser qwen3 \
     --override-generation-config '{{"presence_penalty":{presence_penalty},"temperature":{temperature}}}' \
     --chat-template /workspace/flashnext/model/{chat_template} \
-    --speculative-config '{{"method":"mtp","num_speculative_tokens":{num_speculative_tokens},"model":"/workspace/flashnext/draft-k10","rejection_sample_method":"block","draft_sample_method":"greedy"}}'
+    --speculative-config '{{"method":"mtp","num_speculative_tokens":{num_speculative_tokens},"model":"/workspace/flashnext/draft-k10","rejection_sample_method":"block","draft_sample_method":"greedy","moe_backend":"{draft_moe_backend}"}}'
